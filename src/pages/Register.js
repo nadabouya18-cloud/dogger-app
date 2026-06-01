@@ -42,8 +42,12 @@ export default function Register() {
     firstName: '', lastName: '', email: '', password: '', phone: '',
     dogName: '', dogBreed: '', dogSize: '', dogGender: '', dogAge: 2, dogNotes: '', dogPhoto: ''
   });
-  const [error, setError] = useState('');
+ const [error, setError] = useState('');
   const [autoSize, setAutoSize] = useState(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoValid, setPhotoValid] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const [photoAnalysis, setPhotoAnalysis] = useState('');
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -62,7 +66,9 @@ export default function Register() {
     if (!form.firstName) return 'Entrez votre prénom';
     if (!form.email || !form.email.includes('@')) return 'Email invalide';
     if (form.password.length < 6) return 'Mot de passe trop court (6 caractères min)';
-    if (form.phone && form.phone.length < 10) return 'Numéro de téléphone invalide';
+    if (!form.phone) return 'Le numéro de téléphone est obligatoire';
+    const cleaned = form.phone.replace(/\s/g, '');
+    if (!/^[67]\d{8}$/.test(cleaned)) return 'Numéro invalide — commence par 6 ou 7, ex: 6 12 34 56 78';
     return null;
   };
 
@@ -142,11 +148,14 @@ export default function Register() {
             <label style={labelStyle}>Mot de passe *</label>
             <input style={inputStyle} type="password" placeholder="6 caractères minimum" value={form.password}
               onChange={e => update('password', e.target.value)} />
-            <label style={labelStyle}>Téléphone <span style={{ color: '#AAA', fontWeight: 400 }}>(recommandé)</span></label>
+            <label style={labelStyle}>Téléphone * <span style={{ color: '#AAA', fontWeight: 400 }}>(commence par 6 ou 7)</span></label>
             <div style={{ position: 'relative', marginBottom: 12 }}>
               <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: '#555' }}>🇫🇷 +33</span>
-              <input style={{ ...inputStyle, paddingLeft: 80, marginBottom: 0 }} type="tel" placeholder="6 12 34 56 78"
-                value={form.phone} onChange={e => update('phone', e.target.value)} />
+             <input style={{ ...inputStyle, paddingLeft: 80, marginBottom: 0 }} type="tel" placeholder="6 12 34 56 78" maxLength={13}
+                value={form.phone} onChange={e => {
+                  const val = e.target.value.replace(/[^\d\s]/g, '');
+                  update('phone', val);
+                }} />
             </div>
             <div style={{ background: '#F8FAF9', borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#888' }}>
               🔒 Vos données sont sécurisées et ne seront jamais revendues.
@@ -157,19 +166,94 @@ export default function Register() {
         {/* ÉTAPE 2 — PROFIL CHIEN */}
         {step === 2 && (
           <div>
-          {/* PHOTO CHIEN */}
+      {/* PHOTO CHIEN */}
             <div style={{ textAlign: 'center', marginBottom: 20 }}>
               <div
-                onClick={() => document.getElementById('dogPhoto').click()}
-                style={{ width: 100, height: 100, borderRadius: '50%', background: form.dogPhoto ? 'transparent' : '#E1F5EE', border: '2.5px dashed #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 10px', overflow: 'hidden', position: 'relative' }}>
+                onClick={() => !photoLoading && document.getElementById('dogPhoto').click()}
+                style={{ width: 110, height: 110, borderRadius: '50%', background: form.dogPhoto ? 'transparent' : '#E1F5EE', border: photoError ? '2.5px solid #E24B4A' : photoValid ? '2.5px solid #1D9E75' : '2.5px dashed #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: photoLoading ? 'wait' : 'pointer', margin: '0 auto 10px', overflow: 'hidden', position: 'relative' }}>
                 {form.dogPhoto
                   ? <img src={form.dogPhoto} alt="chien" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 28 }}>🐾</div>
-                      <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 4, fontWeight: 600 }}>Ajouter</div>
+                      <div style={{ fontSize: 32 }}>🐾</div>
+                      <div style={{ fontSize: 11, color: '#E24B4A', marginTop: 4, fontWeight: 700 }}>Requis *</div>
                     </div>
                 }
+                {photoLoading && (
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 20 }}>🔍</div>
+                    <div style={{ fontSize: 10, color: '#1D9E75', fontWeight: 700 }}>Analyse IA...</div>
+                  </div>
+                )}
+                {photoValid && !photoLoading && (
+                  <div style={{ position: 'absolute', bottom: 4, right: 4, width: 24, height: 24, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>✅</div>
+                )}
               </div>
+              <input id="dogPhoto" type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={async e => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  if (file.size > 5 * 1024 * 1024) { setPhotoError('Photo trop lourde (max 5 Mo)'); return; }
+                  const reader = new FileReader();
+                  reader.onload = async ev => {
+                    const base64 = ev.target.result;
+                    update('dogPhoto', base64);
+                    setPhotoError('');
+                    setPhotoValid(false);
+                    setPhotoLoading(true);
+                    setPhotoAnalysis('');
+                    try {
+                      const base64Data = base64.split(',')[1];
+                      const res = await fetch('https://api.anthropic.com/v1/messages', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          model: 'claude-sonnet-4-20250514',
+                          max_tokens: 300,
+                          messages: [{
+                            role: 'user',
+                            content: [
+                              { type: 'image', source: { type: 'base64', media_type: file.type, data: base64Data } },
+                              { type: 'text', text: `Analyse cette photo et réponds UNIQUEMENT en JSON sans markdown:\n{"isdog":true/false,"breed":"race détectée ou null","size":"xs/s/m/l ou null","valid":true/false,"message":"message court en français"}\n\nRègles:\n- isdog: true si c'est clairement un chien\n- breed: race la plus probable\n- size: xs(<10kg), s(10-20kg), m(20-35kg), l(>35kg)\n- valid: true si c'est un vrai chien clairement visible\n- message: explication courte (max 15 mots)` }
+                            ]
+                          }]
+                        })
+                      });
+                      const data = await res.json();
+                      const text = data.content?.[0]?.text || '{}';
+                      const result = JSON.parse(text.replace(/```json|```/g, '').trim());
+                      if (!result.isdog || !result.valid) {
+                        setPhotoError(result.message || 'Photo invalide — veuillez prendre une photo claire de votre chien');
+                        setPhotoValid(false);
+                        update('dogPhoto', '');
+                      } else {
+                        setPhotoValid(true);
+                        setPhotoAnalysis(result.message || '');
+                        // Auto-suggérer la race si non encore sélectionnée
+                        if (!form.dogBreed && result.breed) {
+                          const matchedBreed = BREEDS.find(b => b.toLowerCase().includes(result.breed.toLowerCase()));
+                          if (matchedBreed) update('dogBreed', matchedBreed);
+                        }
+                        // Vérifier la cohérence gabarit si race déjà choisie
+                        if (form.dogBreed && result.size && BREED_SIZE[form.dogBreed]) {
+                          const expectedSize = BREED_SIZE[form.dogBreed];
+                          if (result.size !== expectedSize) {
+                            setPhotoAnalysis(`⚠️ Le gabarit détecté (${result.size.toUpperCase()}) diffère de la race sélectionnée`);
+                          }
+                        }
+                      }
+                    } catch(e) {
+                      setPhotoValid(true);
+                      setPhotoAnalysis('');
+                    } finally {
+                      setPhotoLoading(false);
+                    }
+                  };
+                  reader.readAsDataURL(file);
+                }} />
+              <div style={{ fontSize: 12, color: photoError ? '#E24B4A' : photoValid ? '#1D9E75' : '#AAA', fontWeight: photoError || photoValid ? 600 : 400, minHeight: 16 }}>
+                {photoError ? `⚠️ ${photoError}` : photoValid ? `✅ ${photoAnalysis || 'Photo validée !'}` : form.dogPhoto ? '🔍 Analyse en cours...' : 'Photo obligatoire · JPG ou PNG · max 5 Mo'}
+              </div>
+            </div>
               <input id="dogPhoto" type="file" accept="image/*" style={{ display: 'none' }}
                 onChange={e => {
                   const file = e.target.files[0];

@@ -13,20 +13,21 @@ const TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '1
 export default function BookingFlow() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
+  const [mode, setMode] = useState('now'); // 'now' ou 'later'
   const [form, setForm] = useState({
     service: 'shared', address: '', date: '', time: '', notes: ''
   });
   const [error, setError] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [searching, setSearching] = useState(false);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
-
   const selectedService = SERVICES.find(s => s.id === form.service);
 
   const validateStep2 = () => {
     if (!form.address) return 'Entrez une adresse';
-    if (!form.date) return 'Choisissez une date';
-    if (!form.time) return 'Choisissez une heure';
+    if (mode === 'later' && !form.date) return 'Choisissez une date';
+    if (mode === 'later' && !form.time) return 'Choisissez une heure';
     return null;
   };
 
@@ -40,8 +41,12 @@ export default function BookingFlow() {
   };
 
   const confirm = () => {
-    setConfirmed(true);
-    setTimeout(() => navigate('/dashboard'), 2500);
+    if (mode === 'now') {
+      setSearching(true);
+      setTimeout(() => { setSearching(false); setConfirmed(true); }, 3000);
+    } else {
+      setConfirmed(true);
+    }
   };
 
   const inputStyle = {
@@ -55,20 +60,77 @@ export default function BookingFlow() {
     fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block'
   };
 
+  // ÉCRAN RECHERCHE PROMENEUR (mode now)
+  if (searching) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', padding: 32 }}>
+          <div style={{ fontSize: 64, marginBottom: 24, animation: 'pulse 1s infinite' }}>🔍</div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Recherche en cours...</h2>
+          <p style={{ fontSize: 14, color: '#888', lineHeight: 1.6, marginBottom: 32 }}>
+            Nous cherchons un promeneur disponible<br />près de votre adresse
+          </p>
+          {/* Indicateur animé */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{
+                width: 10, height: 10, borderRadius: '50%', background: '#1D9E75',
+                opacity: 0.3 + (i * 0.35),
+                animation: `bounce ${0.6 + i * 0.2}s infinite alternate`
+              }} />
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: '#AAA', marginTop: 24 }}>Temps moyen : 30–90 secondes</p>
+        </div>
+        <style>{`
+          @keyframes bounce {
+            from { transform: translateY(0); opacity: 0.4; }
+            to { transform: translateY(-8px); opacity: 1; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // ÉCRAN CONFIRMATION
   if (confirmed) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', padding: 32 }}>
           <div style={{ fontSize: 72, marginBottom: 16 }}>🐾</div>
-          <h2 style={{ fontSize: 26, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Balade confirmée !</h2>
+          <h2 style={{ fontSize: 26, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>
+            {mode === 'now' ? 'Promeneur trouvé !' : 'Balade planifiée !'}
+          </h2>
           <p style={{ fontSize: 15, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>
-            Nous cherchons un promeneur disponible près de chez vous. Vous serez notifié dans quelques instants.
+            {mode === 'now'
+              ? 'Thomas arrive dans environ 12 minutes. Vous recevrez une notification dès qu\'il part.'
+              : 'Votre balade est confirmée. Vous serez notifié le jour J.'}
           </p>
-          <div style={{ background: '#E1F5EE', borderRadius: 16, padding: '16px 20px', display: 'inline-block' }}>
-            <div style={{ fontSize: 28, marginBottom: 4 }}>{selectedService.icon}</div>
+
+          {mode === 'now' && (
+            <div style={{ background: '#E1F5EE', borderRadius: 16, padding: '16px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🧑</div>
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#0F6E56' }}>Thomas M.</div>
+                <div style={{ fontSize: 13, color: '#1D9E75' }}>⭐ 4.9 · 127 balades</div>
+                <div style={{ fontSize: 12, color: '#888' }}>À 800m de vous · ETA 12 min</div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '16px 20px', marginBottom: 24 }}>
+            <div style={{ fontSize: 28, marginBottom: 6 }}>{selectedService.icon}</div>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#0F6E56' }}>{selectedService.name}</div>
-            <div style={{ fontSize: 13, color: '#1D9E75' }}>{form.date} à {form.time}</div>
+            <div style={{ fontSize: 13, color: '#888' }}>
+              {mode === 'now' ? "Aujourd'hui · Maintenant" : `${form.date} à ${form.time}`}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75', marginTop: 6 }}>{selectedService.price}€</div>
           </div>
+
+          <button onClick={() => navigate('/dashboard')}
+            style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>
+            Suivre la balade en direct →
+          </button>
         </div>
       </div>
     );
@@ -118,27 +180,49 @@ export default function BookingFlow() {
           </div>
         )}
 
-        {/* ÉTAPE 2 — ADRESSE & HEURE */}
+        {/* ÉTAPE 2 — ADRESSE & MODE */}
         {step === 2 && (
           <div>
+            {/* TOGGLE MAINTENANT / PLANIFIER */}
+            <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 20 }}>
+              <button onClick={() => setMode('now')}
+                style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: mode === 'now' ? '#fff' : 'transparent', color: mode === 'now' ? '#1D9E75' : '#888', boxShadow: mode === 'now' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>
+                ⚡ Maintenant
+              </button>
+              <button onClick={() => setMode('later')}
+                style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: mode === 'later' ? '#fff' : 'transparent', color: mode === 'later' ? '#1D9E75' : '#888', boxShadow: mode === 'later' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>
+                📅 Planifier
+              </button>
+            </div>
+
+            {mode === 'now' && (
+              <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#0F6E56', marginBottom: 16, fontWeight: 500 }}>
+                ⚡ Un promeneur sera chez vous dans 30–90 min
+              </div>
+            )}
+
             <label style={labelStyle}>Adresse de prise en charge</label>
             <input style={inputStyle} placeholder="12 rue de la Paix, Paris 75001"
               value={form.address} onChange={e => update('address', e.target.value)} />
 
-            <label style={labelStyle}>Date</label>
-            <input style={inputStyle} type="date" value={form.date}
-              min={new Date().toISOString().split('T')[0]}
-              onChange={e => update('date', e.target.value)} />
+            {mode === 'later' && (
+              <>
+                <label style={labelStyle}>Date</label>
+                <input style={inputStyle} type="date" value={form.date}
+                  min={new Date().toISOString().split('T')[0]}
+                  onChange={e => update('date', e.target.value)} />
 
-            <label style={labelStyle}>Heure</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
-              {TIMES.map(t => (
-                <div key={t} onClick={() => update('time', t)}
-                  style={{ padding: '10px 4px', textAlign: 'center', borderRadius: 10, border: form.time === t ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: form.time === t ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 13, fontWeight: form.time === t ? 700 : 400, color: form.time === t ? '#0F6E56' : '#555' }}>
-                  {t}
+                <label style={labelStyle}>Heure</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+                  {TIMES.map(t => (
+                    <div key={t} onClick={() => update('time', t)}
+                      style={{ padding: '10px 4px', textAlign: 'center', borderRadius: 10, border: form.time === t ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: form.time === t ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 13, fontWeight: form.time === t ? 700 : 400, color: form.time === t ? '#0F6E56' : '#555' }}>
+                      {t}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
 
             <label style={labelStyle}>Instructions spéciales (optionnel)</label>
             <textarea style={{ ...inputStyle, height: 80, resize: 'none' }}
@@ -151,7 +235,6 @@ export default function BookingFlow() {
         {step === 3 && (
           <div>
             <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Vérifiez votre commande avant de confirmer</p>
-
             <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '20px', marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 14 }}>VOTRE COMMANDE</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -162,8 +245,13 @@ export default function BookingFlow() {
                 </div>
               </div>
               <div style={{ height: 1, background: '#EBEBEB', margin: '12px 0' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 16 }}>{mode === 'now' ? '⚡' : '📅'}</span>
+                <span style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>
+                  {mode === 'now' ? 'Maintenant — arrivée dans ~30 min' : `${form.date} à ${form.time}`}
+                </span>
+              </div>
               <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📍 {form.address}</div>
-              <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📅 {form.date} à {form.time}</div>
               {form.notes && <div style={{ fontSize: 14, color: '#555' }}>📝 {form.notes}</div>}
               <div style={{ height: 1, background: '#EBEBEB', margin: '12px 0' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -171,7 +259,6 @@ export default function BookingFlow() {
                 <span style={{ fontSize: 20, fontWeight: 700, color: '#1D9E75' }}>{selectedService.price}€</span>
               </div>
             </div>
-
             <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#888', marginBottom: 20 }}>
               💳 Votre carte sera débitée uniquement à la fin de la balade.
             </div>
@@ -188,7 +275,7 @@ export default function BookingFlow() {
         {/* BOUTON */}
         <button onClick={step < 3 ? nextStep : confirm}
           style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>
-          {step === 1 ? 'Choisir cette formule →' : step === 2 ? 'Voir le récapitulatif →' : '🐾 Confirmer la balade'}
+          {step === 1 ? 'Choisir cette formule →' : step === 2 ? 'Voir le récapitulatif →' : mode === 'now' ? '⚡ Trouver un promeneur maintenant' : '🐾 Confirmer la balade'}
         </button>
 
       </div>

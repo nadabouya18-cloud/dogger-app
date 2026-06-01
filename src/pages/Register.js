@@ -107,7 +107,7 @@ export default function Register() {
               role: 'user',
               content: [
                 { type: 'image', source: { type: 'base64', media_type: file.type, data: base64Data } },
-                { type: 'text', text: `Analyse cette photo et réponds UNIQUEMENT en JSON sans markdown:\n{"isdog":true/false,"breed":"race détectée ou null","size":"xs/s/m/l ou null","valid":true/false,"message":"message court en français"}\n\nRègles:\n- isdog: true si c'est clairement un chien\n- breed: race la plus probable en français\n- size: xs(<10kg), s(10-20kg), m(20-35kg), l(>35kg)\n- valid: true si c'est un vrai chien clairement visible\n- message: explication courte max 15 mots` }
+                { type: 'text', text: `Tu es un validateur strict de photos pour une app de promenade de chiens. Analyse cette photo et réponds UNIQUEMENT en JSON sans markdown:\n{"isdog":true/false,"breed":"race détectée ou null","size":"xs/s/m/l ou null","valid":true/false,"message":"message court en français"}\n\nRègles STRICTES:\n- isdog: true UNIQUEMENT si c'est un chien (pas un humain, pas un chat, pas un objet)\n- Si c'est un humain, un enfant, une personne: isdog=false, valid=false\n- Si c'est un autre animal: isdog=false, valid=false\n- breed: race la plus probable en français\n- size: xs(<10kg), s(10-20kg), m(20-35kg), l(>35kg)\n- valid: true UNIQUEMENT si c'est un vrai chien clairement visible et identifiable\n- message: explication courte max 15 mots\n\nSois très strict — en cas de doute, valid=false` }
               ]
             }]
           })
@@ -128,8 +128,9 @@ export default function Register() {
           }
         }
       } catch (err) {
-        setPhotoValid(true);
-        setPhotoAnalysis('Photo acceptée');
+        setPhotoValid(false);
+        setPhotoError('Impossible de valider la photo — réessayez');
+        update('dogPhoto', '');
       } finally {
         setPhotoLoading(false);
       }

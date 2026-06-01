@@ -2,11 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 
-const HISTORY = [
-  { id: 1, dog: 'Luna', walker: 'Thomas M.', date: "Aujourd'hui 14h00", duration: 45, price: 18, rating: 5, status: 'Terminé' },
-  { id: 2, dog: 'Milo', walker: 'Julie R.',  date: 'Hier 10h30',        duration: 30, price: 12, rating: 4, status: 'Terminé' },
-  { id: 3, dog: 'Luna', walker: 'Karim B.',  date: '28 mai 16h00',      duration: 60, price: 22, rating: 5, status: 'Terminé' },
-];
+const HISTORY = [];
 
 const WALK_STEPS = [
   'Thomas est en route vers vous...',

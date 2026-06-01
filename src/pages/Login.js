@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../supabase';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -9,15 +10,32 @@ export default function Login() {
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!form.email || !form.email.includes('@')) { setError('Email invalide'); return; }
     if (!form.password) { setError('Entrez votre mot de passe'); return; }
     setError('');
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: form.email,
+        password: form.password,
+      });
+      if (authError) {
+        if (authError.message.includes('Invalid login')) {
+          setError('Email ou mot de passe incorrect');
+        } else if (authError.message.includes('Email not confirmed')) {
+          setError('Vérifiez votre email avant de vous connecter');
+        } else {
+          setError(authError.message);
+        }
+        return;
+      }
       navigate('/dashboard');
-    }, 1200);
+    } catch (e) {
+      setError('Une erreur est survenue — réessayez');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const inputStyle = {
@@ -26,15 +44,11 @@ export default function Login() {
     outline: 'none', background: '#FAFAFA', color: '#1A1A1A',
     marginBottom: 12, boxSizing: 'border-box'
   };
-
-  const labelStyle = {
-    fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block'
-  };
+  const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
 
   return (
     <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
 
-      {/* HEADER */}
       <div style={{ background: 'linear-gradient(160deg, #0F6E56 0%, #1D9E75 100%)', padding: '48px 24px 40px' }}>
         <button onClick={() => navigate('/')}
           style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 24 }}>
@@ -46,7 +60,6 @@ export default function Login() {
       </div>
 
       <div style={{ padding: '32px 24px' }}>
-
         <label style={labelStyle}>Email</label>
         <input style={inputStyle} type="email" placeholder="marie@exemple.fr"
           value={form.email} onChange={e => update('email', e.target.value)} />
@@ -67,7 +80,7 @@ export default function Login() {
 
         <button onClick={handleLogin} disabled={loading}
           style={{ width: '100%', padding: 16, background: loading ? '#A8D5C4' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: loading ? 'default' : 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)', marginBottom: 16 }}>
-          {loading ? 'Connexion en cours...' : 'Se connecter'}
+          {loading ? 'Connexion...' : 'Se connecter'}
         </button>
 
         <div style={{ textAlign: 'center', padding: '16px 0', borderTop: '1px solid #F0F0F0' }}>
@@ -78,7 +91,6 @@ export default function Login() {
           </button>
         </div>
 
-        {/* SOCIAL LOGIN */}
         <div style={{ marginTop: 8 }}>
           <div style={{ textAlign: 'center', fontSize: 13, color: '#AAA', marginBottom: 16, position: 'relative' }}>
             <span style={{ background: '#fff', padding: '0 12px', position: 'relative', zIndex: 1 }}>ou continuer avec</span>
@@ -93,7 +105,6 @@ export default function Login() {
             </button>
           </div>
         </div>
-
       </div>
     </div>
   );

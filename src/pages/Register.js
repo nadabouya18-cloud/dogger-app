@@ -2,10 +2,22 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const BREEDS = [
-  'Labrador', 'Golden Retriever', 'Berger Allemand', 'Bouledogue Français',
-  'Beagle', 'Caniche', 'Chihuahua', 'Yorkshire', 'Shih Tzu', 'Carlin',
-  'Husky', 'Rottweiler', 'Dobermann', 'Dalmatien', 'Cocker Spaniel',
-  'Border Collie', 'Cavalier King Charles', 'Bichon Frisé', 'Autre'
+  'Affenpinscher', 'Akita Inu', 'Alaskan Malamute', 'Basenji', 'Basset Hound',
+  'Beagle', 'Berger Allemand', 'Berger Australien', 'Berger Belge Malinois',
+  'Bichon Frisé', 'Border Collie', 'Boston Terrier', 'Bouledogue Américain',
+  'Bouledogue Français', 'Boxer', 'Braque de Weimar', 'Bull Terrier',
+  'Bulldog Anglais', 'Cairn Terrier', 'Caniche Nain', 'Caniche Royal',
+  'Caniche Toy', 'Cavalier King Charles', 'Chow-Chow', 'Chihuahua',
+  'Christal Terrier', 'Cocker Américain', 'Cocker Spaniel', 'Colley',
+  'Dalmatien', 'Dobermann', 'Dogue Allemand', 'Dogue de Bordeaux',
+  'Épagneul Breton', 'Fox Terrier', 'Golden Retriever', 'Greyhound',
+  'Husky Sibérien', 'Jack Russell', 'Labrador', 'Leonberg',
+  'Lhassa Apso', 'Maltais', 'Mastiff', 'Montagne des Pyrénées',
+  'Pinscher Nain', 'Pointer', 'Rottweiler', 'Saint-Bernard',
+  'Samoyède', 'Setter Irlandais', 'Shiba Inu', 'Shih Tzu',
+  'Spitz Nain', 'Springer Spaniel', 'Staffordshire Bull Terrier',
+  'Teckel', 'Terre-Neuve', 'Whippet', 'Yorkshire Terrier',
+  'Autre'
 ];
 
 export default function Register() {

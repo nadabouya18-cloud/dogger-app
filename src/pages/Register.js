@@ -92,8 +92,6 @@ export default function Register() {
     setError('');
     setLoading(true);
     try {
-      // 1. Créer le compte auth
-      try {
       if (!supabase) {
         setError('Configuration manquante — contactez le support');
         setLoading(false);
@@ -110,29 +108,21 @@ export default function Register() {
           }
         }
       });
-
       if (authError) {
-        if (authError.message.includes('already registered')) {
-          setError('Cet email est déjà utilisé — connectez-vous');
-        } else {
-          setError(authError.message);
-        }
+        setError(authError.message.includes('already registered')
+          ? 'Cet email est déjà utilisé — connectez-vous'
+          : authError.message);
         setLoading(false);
         return;
       }
-
-      // 2. Créer le profil
-      const { error: profileError } = await supabase.from('profiles').insert({
+      await supabase.from('profiles').insert({
         id: data.user.id,
         first_name: form.firstName,
         last_name: form.lastName,
         phone: form.phone,
         role: 'owner',
       });
-      if (profileError) console.error('Profile error:', profileError);
-
-      // 3. Créer le chien
-      const { error: dogError } = await supabase.from('dogs').insert({
+      await supabase.from('dogs').insert({
         owner_id: data.user.id,
         name: form.dogName,
         breed: form.dogBreed,
@@ -142,8 +132,6 @@ export default function Register() {
         notes: form.dogNotes,
         photo_url: form.dogPhoto,
       });
-      if (dogError) console.error('Dog error:', dogError);
-
       setStep(3);
     } catch (e) {
       setError('Une erreur est survenue — réessayez');
@@ -204,7 +192,6 @@ export default function Register() {
   return (
     <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
 
-      {/* HEADER */}
       <div style={{ background: 'linear-gradient(160deg, #0F6E56 0%, #1D9E75 100%)', padding: '48px 24px 32px' }}>
         <button onClick={() => step > 1 ? setStep(s => s - 1) : navigate('/')}
           style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>
@@ -226,7 +213,6 @@ export default function Register() {
 
       <div style={{ padding: '28px 24px' }}>
 
-        {/* ÉTAPE 1 */}
         {step === 1 && (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -261,10 +247,8 @@ export default function Register() {
           </div>
         )}
 
-        {/* ÉTAPE 2 */}
         {step === 2 && (
           <div>
-            {/* PHOTO */}
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div onClick={() => !photoLoading && document.getElementById('dogPhoto').click()}
                 style={{ width: 110, height: 110, borderRadius: '50%', background: form.dogPhoto ? 'transparent' : '#E1F5EE', border: photoError ? '2.5px solid #E24B4A' : photoValid ? '2.5px solid #1D9E75' : '2.5px dashed #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: photoLoading ? 'wait' : 'pointer', margin: '0 auto 10px', overflow: 'hidden', position: 'relative' }}>
@@ -352,16 +336,15 @@ export default function Register() {
           </div>
         )}
 
-        {/* ÉTAPE 3 */}
         {step === 3 && (
           <div style={{ textAlign: 'center', paddingTop: 20 }}>
             <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
             <h2 style={{ fontSize: 24, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Bienvenue {form.firstName} !</h2>
             <p style={{ fontSize: 15, color: '#888', lineHeight: 1.6, marginBottom: 8 }}>
-              Votre compte est créé ! Vérifiez votre email pour confirmer votre inscription.
+              Votre compte est créé ! Vérifiez votre email pour confirmer.
             </p>
             <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#888', marginBottom: 24 }}>
-              📧 Un email de confirmation a été envoyé à <strong>{form.email}</strong>
+              📧 Email de confirmation envoyé à <strong>{form.email}</strong>
             </div>
             <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '20px', marginBottom: 28, textAlign: 'left' }}>
               {form.dogPhoto && (
@@ -381,14 +364,12 @@ export default function Register() {
           </div>
         )}
 
-        {/* ERREUR */}
         {error && (
           <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>
             ⚠️ {error}
           </div>
         )}
 
-        {/* BOUTON */}
         {step < 3 ? (
           <button onClick={step === 1 ? nextStep : handleSubmit} disabled={loading}
             style={{ width: '100%', padding: 16, background: loading ? '#A8D5C4' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: loading ? 'default' : 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>

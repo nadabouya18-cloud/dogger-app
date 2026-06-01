@@ -9,6 +9,7 @@ const SERVICES = [
 ];
 
 const DURATIONS = [
+  { id: 15,  label: '15 min' },
   { id: 30,  label: '30 min' },
   { id: 45,  label: '45 min' },
   { id: 60,  label: '1h' },
@@ -16,7 +17,7 @@ const DURATIONS = [
   { id: 120, label: '2h' },
 ];
 
-const TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
+const TIMES = ['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00','00:00'];
 
 const WALKERS_NEARBY = [
   { name: 'Thomas M.', rating: 4.9, walks: 127, dist: '300m', eta: '8 min',  emoji: '🧑' },
@@ -41,7 +42,7 @@ export default function BookingFlow() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [mode, setMode] = useState('now');
-  const [form, setForm] = useState({ service: 'shared', duration: 30, address: '', date: '', time: '', notes: '' });
+  const [form, setForm] = useState({ service: 'shared', duration: 15, address: '', date: '', time: '', notes: '' });
   const [error, setError] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchStep, setSearchStep] = useState(0);

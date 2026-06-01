@@ -1,0 +1,11 @@
+{
+  "short_name": "Dogger",
+  "name": "Dogger — Promenade de chiens",
+  "description": "La promenade de chiens à la demande",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#1D9E75",
+  "background_color": "#ffffff",
+  "categories": ["lifestyle", "utilities"]
+}

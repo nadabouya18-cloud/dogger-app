@@ -93,6 +93,12 @@ export default function Register() {
     setLoading(true);
     try {
       // 1. Créer le compte auth
+      try {
+      if (!supabase) {
+        setError('Configuration manquante — contactez le support');
+        setLoading(false);
+        return;
+      }
       const { data, error: authError } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,

@@ -1,40 +1,68 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const BREEDS = [
-  'Affenpinscher', 'Akita Inu', 'Alaskan Malamute', 'Basenji', 'Basset Hound',
-  'Beagle', 'Berger Allemand', 'Berger Australien', 'Berger Belge Malinois',
-  'Bichon Frisé', 'Border Collie', 'Boston Terrier', 'Bouledogue Américain',
-  'Bouledogue Français', 'Boxer', 'Braque de Weimar', 'Bull Terrier',
-  'Bulldog Anglais', 'Cairn Terrier', 'Caniche Nain', 'Caniche Royal',
-  'Caniche Toy', 'Cavalier King Charles', 'Chow-Chow', 'Chihuahua',
-  'Christal Terrier', 'Cocker Américain', 'Cocker Spaniel', 'Colley',
-  'Dalmatien', 'Dobermann', 'Dogue Allemand', 'Dogue de Bordeaux',
-  'Épagneul Breton', 'Fox Terrier', 'Golden Retriever', 'Greyhound',
-  'Husky Sibérien', 'Jack Russell', 'Labrador', 'Leonberg',
-  'Lhassa Apso', 'Maltais', 'Mastiff', 'Montagne des Pyrénées',
-  'Pinscher Nain', 'Pointer', 'Rottweiler', 'Saint-Bernard',
-  'Samoyède', 'Setter Irlandais', 'Shiba Inu', 'Shih Tzu',
-  'Spitz Nain', 'Springer Spaniel', 'Staffordshire Bull Terrier',
-  'Teckel', 'Terre-Neuve', 'Whippet', 'Yorkshire Terrier',
-  'Autre'
-];
+// Race → gabarit automatique
+const BREED_SIZE = {
+  // XS
+  'Bichon Frisé': 'xs', 'Bichon Maltais': 'xs', 'Chihuahua': 'xs', 'Spitz Nain': 'xs',
+  'Yorkshire Terrier': 'xs', 'Caniche Toy': 'xs', 'Pinscher Nain': 'xs', 'Shih Tzu': 'xs',
+  'Cairn Terrier': 'xs', 'Affenpinscher': 'xs', 'Lhassa Apso': 'xs',
+  // S
+  'Beagle': 's', 'Boston Terrier': 's', 'Bouledogue Français': 's', 'Caniche Nain': 's',
+  'Cavalier King Charles': 's', 'Cocker Américain': 's', 'Cocker Spaniel': 's',
+  'Fox Terrier': 's', 'Jack Russell': 's', 'Pug': 's', 'Shiba Inu': 's',
+  'Teckel': 's', 'Whippet': 's', 'Basenji': 's',
+  // M
+  'Berger Australien': 'm', 'Border Collie': 'm', 'Boxer': 'm', 'Braque de Weimar': 'm',
+  'Bull Terrier': 'm', 'Bulldog Anglais': 'm', 'Caniche Royal': 'm', 'Colley': 'm',
+  'Dalmatien': 'm', 'Épagneul Breton': 'm', 'Husky Sibérien': 'm', 'Labrador': 'm',
+  'Golden Retriever': 'm', 'Pointer': 'm', 'Setter Irlandais': 'm',
+  'Springer Spaniel': 'm', 'Staffordshire Bull Terrier': 'm',
+  // L
+  'Akita Inu': 'l', 'Alaskan Malamute': 'l', 'Berger Allemand': 'l',
+  'Berger Belge Malinois': 'l', 'Bouledogue Américain': 'l', 'Chow-Chow': 'l',
+  'Dobermann': 'l', 'Dogue Allemand': 'l', 'Dogue de Bordeaux': 'l',
+  'Greyhound': 'l', 'Leonberg': 'l', 'Mastiff': 'l', 'Montagne des Pyrénées': 'l',
+  'Rottweiler': 'l', 'Saint-Bernard': 'l', 'Samoyède': 'l', 'Terre-Neuve': 'l',
+};
+
+const BREEDS = Object.keys(BREED_SIZE).sort().concat(['Autre']);
+
+const SIZE_LABELS = {
+  xs: { label: '🐩 XS', desc: '< 10 kg', color: '#9B59B6' },
+  s:  { label: '🐕 S',  desc: '10–20 kg', color: '#3498DB' },
+  m:  { label: '🦮 M',  desc: '20–35 kg', color: '#E67E22' },
+  l:  { label: '🐕‍🦺 L', desc: '> 35 kg',  color: '#E24B4A' },
+};
 
 export default function Register() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
-    firstName: '', lastName: '', email: '', password: '',
-    dogName: '', dogBreed: '', dogSize: '', dogNotes: ''
+    firstName: '', lastName: '', email: '', password: '', phone: '',
+    dogName: '', dogBreed: '', dogSize: '', dogGender: '', dogAge: 2, dogNotes: ''
   });
   const [error, setError] = useState('');
+  const [autoSize, setAutoSize] = useState(null);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
+
+  // Auto-gabarit selon la race
+  useEffect(() => {
+    if (form.dogBreed && BREED_SIZE[form.dogBreed]) {
+      const size = BREED_SIZE[form.dogBreed];
+      setAutoSize(size);
+      update('dogSize', size);
+    } else {
+      setAutoSize(null);
+    }
+  }, [form.dogBreed]);
 
   const validateStep1 = () => {
     if (!form.firstName) return 'Entrez votre prénom';
     if (!form.email || !form.email.includes('@')) return 'Email invalide';
     if (form.password.length < 6) return 'Mot de passe trop court (6 caractères min)';
+    if (form.phone && form.phone.length < 10) return 'Numéro de téléphone invalide';
     return null;
   };
 
@@ -42,6 +70,7 @@ export default function Register() {
     if (!form.dogName) return 'Entrez le nom de votre chien';
     if (!form.dogBreed) return 'Sélectionnez une race';
     if (!form.dogSize) return 'Sélectionnez un gabarit';
+    if (!form.dogGender) return 'Sélectionnez le genre';
     return null;
   };
 
@@ -58,9 +87,13 @@ export default function Register() {
     outline: 'none', background: '#FAFAFA', color: '#1A1A1A',
     marginBottom: 12, boxSizing: 'border-box'
   };
+  const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
 
-  const labelStyle = {
-    fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block'
+  const formatAge = (age) => {
+    if (age < 1) return 'Moins de 1 an';
+    if (age === 1) return '1 an';
+    if (age >= 15) return '15 ans et +';
+    return `${age} ans`;
   };
 
   return (
@@ -79,8 +112,6 @@ export default function Register() {
         <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)' }}>
           {step === 1 ? 'Étape 1 sur 2 — Vos informations' : step === 2 ? 'Étape 2 sur 2 — Profil de votre chien' : ''}
         </p>
-
-        {/* PROGRESS BAR */}
         {step < 3 && (
           <div style={{ marginTop: 16, background: 'rgba(255,255,255,0.2)', borderRadius: 10, height: 4 }}>
             <div style={{ width: step === 1 ? '50%' : '100%', background: '#fff', borderRadius: 10, height: 4, transition: 'width 0.3s' }} />
@@ -90,10 +121,10 @@ export default function Register() {
 
       <div style={{ padding: '28px 24px' }}>
 
-        {/* ÉTAPE 1 — INFOS PERSO */}
+        {/* ÉTAPE 1 */}
         {step === 1 && (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
                 <label style={labelStyle}>Prénom *</label>
                 <input style={inputStyle} placeholder="Marie" value={form.firstName}
@@ -111,7 +142,12 @@ export default function Register() {
             <label style={labelStyle}>Mot de passe *</label>
             <input style={inputStyle} type="password" placeholder="6 caractères minimum" value={form.password}
               onChange={e => update('password', e.target.value)} />
-
+            <label style={labelStyle}>Téléphone <span style={{ color: '#AAA', fontWeight: 400 }}>(recommandé)</span></label>
+            <div style={{ position: 'relative', marginBottom: 12 }}>
+              <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: '#555' }}>🇫🇷 +33</span>
+              <input style={{ ...inputStyle, paddingLeft: 80, marginBottom: 0 }} type="tel" placeholder="6 12 34 56 78"
+                value={form.phone} onChange={e => update('phone', e.target.value)} />
+            </div>
             <div style={{ background: '#F8FAF9', borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#888' }}>
               🔒 Vos données sont sécurisées et ne seront jamais revendues.
             </div>
@@ -125,6 +161,31 @@ export default function Register() {
             <input style={inputStyle} placeholder="Rex, Luna, Nala..." value={form.dogName}
               onChange={e => update('dogName', e.target.value)} />
 
+            {/* GENRE */}
+            <label style={labelStyle}>Genre *</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {[{ id: 'male', label: '♂️ Mâle' }, { id: 'female', label: '♀️ Femelle' }].map(g => (
+                <div key={g.id} onClick={() => update('dogGender', g.id)}
+                  style={{ padding: '14px', borderRadius: 12, border: form.dogGender === g.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: form.dogGender === g.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', textAlign: 'center', fontSize: 16, fontWeight: form.dogGender === g.id ? 700 : 400, color: form.dogGender === g.id ? '#0F6E56' : '#555' }}>
+                  {g.label}
+                </div>
+              ))}
+            </div>
+
+            {/* ÂGE SLIDER */}
+            <label style={labelStyle}>
+              Âge * — <span style={{ color: '#1D9E75', fontWeight: 700 }}>{formatAge(form.dogAge)}</span>
+            </label>
+            <div style={{ marginBottom: 16 }}>
+              <input type="range" min="0" max="15" step="1" value={form.dogAge}
+                onChange={e => update('dogAge', parseInt(e.target.value))}
+                style={{ width: '100%', accentColor: '#1D9E75', height: 6, cursor: 'pointer' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#AAA', marginTop: 4 }}>
+                <span>Chiot</span><span>5 ans</span><span>10 ans</span><span>15 ans+</span>
+              </div>
+            </div>
+
+            {/* RACE */}
             <label style={labelStyle}>Race *</label>
             <select style={{ ...inputStyle, appearance: 'none' }} value={form.dogBreed}
               onChange={e => update('dogBreed', e.target.value)}>
@@ -132,21 +193,41 @@ export default function Register() {
               {BREEDS.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
 
-            <label style={labelStyle}>Gabarit *</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              {[
-                { id: 'xs', label: '🐩 XS', desc: '< 10 kg' },
-                { id: 'sm', label: '🐕 S',  desc: '10–20 kg' },
-                { id: 'md', label: '🦮 M',  desc: '20–35 kg' },
-                { id: 'lg', label: '🐕‍🦺 L', desc: '> 35 kg' },
-              ].map(s => (
-                <div key={s.id} onClick={() => update('dogSize', s.id)}
-                  style={{ padding: '14px', borderRadius: 12, border: form.dogSize === s.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: form.dogSize === s.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', textAlign: 'center' }}>
-                  <div style={{ fontSize: 22, marginBottom: 4 }}>{s.label}</div>
-                  <div style={{ fontSize: 12, color: '#888' }}>{s.desc}</div>
-                </div>
-              ))}
+            {/* GABARIT AUTO */}
+            <label style={labelStyle}>
+              Gabarit *
+              {autoSize && (
+                <span style={{ marginLeft: 8, background: '#E1F5EE', color: '#0F6E56', fontSize: 11, padding: '2px 8px', borderRadius: 8, fontWeight: 600 }}>
+                  ✨ Détecté automatiquement
+                </span>
+              )}
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {Object.entries(SIZE_LABELS).map(([id, s]) => {
+                const isLocked = autoSize && autoSize !== id;
+                return (
+                  <div key={id}
+                    onClick={() => !isLocked && update('dogSize', id)}
+                    style={{
+                      padding: '14px', borderRadius: 12, textAlign: 'center',
+                      border: form.dogSize === id ? `2px solid ${s.color}` : '1.5px solid #E8E8E8',
+                      background: form.dogSize === id ? '#E1F5EE' : isLocked ? '#FAFAFA' : '#FAFAFA',
+                      cursor: isLocked ? 'not-allowed' : 'pointer',
+                      opacity: isLocked ? 0.35 : 1,
+                      transition: 'all 0.2s'
+                    }}>
+                    <div style={{ fontSize: 20, marginBottom: 4 }}>{s.label}</div>
+                    <div style={{ fontSize: 12, color: '#888' }}>{s.desc}</div>
+                  </div>
+                );
+              })}
             </div>
+
+            {autoSize && (
+              <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#0F6E56', marginBottom: 16, fontWeight: 500 }}>
+                ✨ Un {form.dogBreed} est automatiquement classé en gabarit {SIZE_LABELS[autoSize].desc}
+              </div>
+            )}
 
             <label style={labelStyle}>Notes spéciales (optionnel)</label>
             <textarea style={{ ...inputStyle, height: 80, resize: 'none' }}
@@ -169,13 +250,21 @@ export default function Register() {
               <div style={{ fontSize: 13, color: '#888', marginBottom: 12, fontWeight: 600 }}>RÉCAPITULATIF</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>👤 {form.firstName} {form.lastName}</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📧 {form.email}</div>
+              {form.phone && <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📱 +33 {form.phone}</div>}
+              <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>🐾 {form.dogName} — {form.dogBreed}</div>
-              <div style={{ fontSize: 14, color: '#1A1A1A' }}>📏 Gabarit : {form.dogSize.toUpperCase()}</div>
+              <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>
+                {form.dogGender === 'male' ? '♂️ Mâle' : '♀️ Femelle'} · {formatAge(form.dogAge)}
+              </div>
+              <div style={{ fontSize: 14, color: '#1A1A1A' }}>
+                📏 Gabarit {SIZE_LABELS[form.dogSize]?.desc}
+                {autoSize && <span style={{ fontSize: 12, color: '#1D9E75', marginLeft: 6 }}>✨ auto</span>}
+              </div>
             </div>
           </div>
         )}
 
-        {/* ERROR */}
+        {/* ERREUR */}
         {error && (
           <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>
             ⚠️ {error}

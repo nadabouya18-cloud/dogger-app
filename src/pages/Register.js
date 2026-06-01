@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../supabase';
 
 const BREED_SIZE = {
   'Affenpinscher': 'xs', 'Bichon Frisé': 'xs', 'Bichon Maltais': 'xs', 'Chihuahua': 'xs',
@@ -33,6 +34,7 @@ const SIZE_LABELS = {
 export default function Register() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', password: '', phone: '',
     dogName: '', dogBreed: '', dogSize: '', dogGender: '', dogAge: 2, dogNotes: '', dogPhoto: ''
@@ -62,14 +64,14 @@ export default function Register() {
     if (form.password.length < 6) return 'Mot de passe trop court (6 caractères min)';
     if (!form.phone) return 'Le numéro de téléphone est obligatoire';
     const cleaned = form.phone.replace(/\s/g, '');
-    if (!/^[67]\d{8}$/.test(cleaned)) return 'Numéro invalide — commence par 6 ou 7, ex: 6 12 34 56 78';
+    if (!/^[67]\d{8}$/.test(cleaned)) return 'Numéro invalide — commence par 6 ou 7';
     return null;
   };
 
   const validateStep2 = () => {
     if (!form.dogPhoto) return 'La photo de votre chien est obligatoire';
     if (photoLoading) return 'Validation de la photo en cours...';
-    if (!photoValid) return 'Veuillez uploader une photo valide de votre chien';
+    if (!photoValid) return 'Veuillez uploader une photo valide';
     if (!form.dogName) return 'Entrez le nom de votre chien';
     if (!form.dogGender) return 'Sélectionnez le genre';
     if (!form.dogBreed) return 'Sélectionnez une race';
@@ -78,10 +80,70 @@ export default function Register() {
   };
 
   const nextStep = () => {
-    const err = step === 1 ? validateStep1() : validateStep2();
+    const err = validateStep1();
     if (err) { setError(err); return; }
     setError('');
-    setStep(s => s + 1);
+    setStep(2);
+  };
+
+  const handleSubmit = async () => {
+    const err = validateStep2();
+    if (err) { setError(err); return; }
+    setError('');
+    setLoading(true);
+    try {
+      // 1. Créer le compte auth
+      const { data, error: authError } = await supabase.auth.signUp({
+        email: form.email,
+        password: form.password,
+        options: {
+          data: {
+            first_name: form.firstName,
+            last_name: form.lastName,
+            phone: form.phone,
+          }
+        }
+      });
+
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          setError('Cet email est déjà utilisé — connectez-vous');
+        } else {
+          setError(authError.message);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // 2. Créer le profil
+      const { error: profileError } = await supabase.from('profiles').insert({
+        id: data.user.id,
+        first_name: form.firstName,
+        last_name: form.lastName,
+        phone: form.phone,
+        role: 'owner',
+      });
+      if (profileError) console.error('Profile error:', profileError);
+
+      // 3. Créer le chien
+      const { error: dogError } = await supabase.from('dogs').insert({
+        owner_id: data.user.id,
+        name: form.dogName,
+        breed: form.dogBreed,
+        size: form.dogSize,
+        gender: form.dogGender,
+        age: form.dogAge,
+        notes: form.dogNotes,
+        photo_url: form.dogPhoto,
+      });
+      if (dogError) console.error('Dog error:', dogError);
+
+      setStep(3);
+    } catch (e) {
+      setError('Une erreur est survenue — réessayez');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePhoto = async (e) => {
@@ -182,8 +244,7 @@ export default function Register() {
             <label style={labelStyle}>Téléphone * <span style={{ color: '#AAA', fontWeight: 400 }}>(commence par 6 ou 7)</span></label>
             <div style={{ position: 'relative', marginBottom: 12 }}>
               <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: '#555', zIndex: 1 }}>🇫🇷 +33</span>
-              <input
-                style={{ ...inputStyle, paddingLeft: 80, marginBottom: 0 }}
+              <input style={{ ...inputStyle, paddingLeft: 80, marginBottom: 0 }}
                 type="tel" placeholder="6 12 34 56 78" maxLength={13}
                 value={form.phone}
                 onChange={e => { const val = e.target.value.replace(/[^\d\s]/g, ''); update('phone', val); }} />
@@ -199,16 +260,8 @@ export default function Register() {
           <div>
             {/* PHOTO */}
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <div
-                onClick={() => !photoLoading && document.getElementById('dogPhoto').click()}
-                style={{
-                  width: 110, height: 110, borderRadius: '50%',
-                  background: form.dogPhoto ? 'transparent' : '#E1F5EE',
-                  border: photoError ? '2.5px solid #E24B4A' : photoValid ? '2.5px solid #1D9E75' : '2.5px dashed #1D9E75',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: photoLoading ? 'wait' : 'pointer',
-                  margin: '0 auto 10px', overflow: 'hidden', position: 'relative'
-                }}>
+              <div onClick={() => !photoLoading && document.getElementById('dogPhoto').click()}
+                style={{ width: 110, height: 110, borderRadius: '50%', background: form.dogPhoto ? 'transparent' : '#E1F5EE', border: photoError ? '2.5px solid #E24B4A' : photoValid ? '2.5px solid #1D9E75' : '2.5px dashed #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: photoLoading ? 'wait' : 'pointer', margin: '0 auto 10px', overflow: 'hidden', position: 'relative' }}>
                 {form.dogPhoto
                   ? <img src={form.dogPhoto} alt="chien" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ textAlign: 'center' }}>
@@ -232,12 +285,10 @@ export default function Register() {
               </div>
             </div>
 
-            {/* NOM */}
             <label style={labelStyle}>Nom de votre chien *</label>
             <input style={inputStyle} placeholder="Rex, Luna, Nala..." value={form.dogName}
               onChange={e => update('dogName', e.target.value)} />
 
-            {/* GENRE */}
             <label style={labelStyle}>Genre *</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
               {[{ id: 'male', label: '♂️ Mâle' }, { id: 'female', label: '♀️ Femelle' }].map(g => (
@@ -248,7 +299,6 @@ export default function Register() {
               ))}
             </div>
 
-            {/* ÂGE */}
             <label style={labelStyle}>Âge * — <span style={{ color: '#1D9E75', fontWeight: 700 }}>{formatAge(form.dogAge)}</span></label>
             <div style={{ marginBottom: 16 }}>
               <input type="range" min="0" max="15" step="1" value={form.dogAge}
@@ -259,7 +309,6 @@ export default function Register() {
               </div>
             </div>
 
-            {/* RACE */}
             <label style={labelStyle}>Race *</label>
             <select style={{ ...inputStyle, appearance: 'none' }} value={form.dogBreed}
               onChange={e => update('dogBreed', e.target.value)}>
@@ -267,14 +316,9 @@ export default function Register() {
               {BREEDS.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
 
-            {/* GABARIT */}
             <label style={labelStyle}>
               Gabarit *
-              {autoSize && (
-                <span style={{ marginLeft: 8, background: '#E1F5EE', color: '#0F6E56', fontSize: 11, padding: '2px 8px', borderRadius: 8, fontWeight: 600 }}>
-                  ✨ Détecté automatiquement
-                </span>
-              )}
+              {autoSize && <span style={{ marginLeft: 8, background: '#E1F5EE', color: '#0F6E56', fontSize: 11, padding: '2px 8px', borderRadius: 8, fontWeight: 600 }}>✨ Auto</span>}
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               {Object.entries(SIZE_LABELS).map(([id, s]) => {
@@ -295,7 +339,6 @@ export default function Register() {
               </div>
             )}
 
-            {/* NOTES */}
             <label style={labelStyle}>Notes spéciales (optionnel)</label>
             <textarea style={{ ...inputStyle, height: 80, resize: 'none' }}
               placeholder="Allergies, médicaments, comportement particulier..."
@@ -308,9 +351,12 @@ export default function Register() {
           <div style={{ textAlign: 'center', paddingTop: 20 }}>
             <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
             <h2 style={{ fontSize: 24, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Bienvenue {form.firstName} !</h2>
-            <p style={{ fontSize: 15, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>
-              Votre compte est créé et {form.dogName} est prêt pour ses premières balades Dogger.
+            <p style={{ fontSize: 15, color: '#888', lineHeight: 1.6, marginBottom: 8 }}>
+              Votre compte est créé ! Vérifiez votre email pour confirmer votre inscription.
             </p>
+            <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#888', marginBottom: 24 }}>
+              📧 Un email de confirmation a été envoyé à <strong>{form.email}</strong>
+            </div>
             <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '20px', marginBottom: 28, textAlign: 'left' }}>
               {form.dogPhoto && (
                 <div style={{ textAlign: 'center', marginBottom: 14 }}>
@@ -338,9 +384,9 @@ export default function Register() {
 
         {/* BOUTON */}
         {step < 3 ? (
-          <button onClick={nextStep}
-            style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>
-            {step === 1 ? 'Continuer →' : 'Créer mon compte 🐾'}
+          <button onClick={step === 1 ? nextStep : handleSubmit} disabled={loading}
+            style={{ width: '100%', padding: 16, background: loading ? '#A8D5C4' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: loading ? 'default' : 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>
+            {loading ? 'Création du compte...' : step === 1 ? 'Continuer →' : 'Créer mon compte 🐾'}
           </button>
         ) : (
           <button onClick={() => navigate('/dashboard')}

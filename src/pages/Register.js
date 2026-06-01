@@ -40,7 +40,7 @@ export default function Register() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', password: '', phone: '',
-    dogName: '', dogBreed: '', dogSize: '', dogGender: '', dogAge: 2, dogNotes: ''
+    dogName: '', dogBreed: '', dogSize: '', dogGender: '', dogAge: 2, dogNotes: '', dogPhoto: ''
   });
   const [error, setError] = useState('');
   const [autoSize, setAutoSize] = useState(null);
@@ -157,6 +157,33 @@ export default function Register() {
         {/* ÉTAPE 2 — PROFIL CHIEN */}
         {step === 2 && (
           <div>
+          {/* PHOTO CHIEN */}
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <div
+                onClick={() => document.getElementById('dogPhoto').click()}
+                style={{ width: 100, height: 100, borderRadius: '50%', background: form.dogPhoto ? 'transparent' : '#E1F5EE', border: '2.5px dashed #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 10px', overflow: 'hidden', position: 'relative' }}>
+                {form.dogPhoto
+                  ? <img src={form.dogPhoto} alt="chien" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 28 }}>🐾</div>
+                      <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 4, fontWeight: 600 }}>Ajouter</div>
+                    </div>
+                }
+              </div>
+              <input id="dogPhoto" type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={e => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  if (file.size > 5 * 1024 * 1024) { alert('Photo trop lourde (max 5 Mo)'); return; }
+                  const reader = new FileReader();
+                  reader.onload = ev => update('dogPhoto', ev.target.result);
+                  reader.readAsDataURL(file);
+                }} />
+              <div style={{ fontSize: 12, color: '#AAA' }}>
+                {form.dogPhoto ? '✅ Photo ajoutée — appuyez pour changer' : 'Optionnel · JPG ou PNG · max 5 Mo'}
+              </div>
+            </div>
+
             <label style={labelStyle}>Nom de votre chien *</label>
             <input style={inputStyle} placeholder="Rex, Luna, Nala..." value={form.dogName}
               onChange={e => update('dogName', e.target.value)} />

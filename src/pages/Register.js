@@ -1,24 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// Race → gabarit automatique
 const BREED_SIZE = {
-  // XS
-  'Bichon Frisé': 'xs', 'Bichon Maltais': 'xs', 'Chihuahua': 'xs', 'Spitz Nain': 'xs',
-  'Yorkshire Terrier': 'xs', 'Caniche Toy': 'xs', 'Pinscher Nain': 'xs', 'Shih Tzu': 'xs',
-  'Cairn Terrier': 'xs', 'Affenpinscher': 'xs', 'Lhassa Apso': 'xs',
-  // S
+  'Affenpinscher': 'xs', 'Bichon Frisé': 'xs', 'Bichon Maltais': 'xs', 'Chihuahua': 'xs',
+  'Spitz Nain': 'xs', 'Yorkshire Terrier': 'xs', 'Caniche Toy': 'xs', 'Pinscher Nain': 'xs',
+  'Shih Tzu': 'xs', 'Cairn Terrier': 'xs', 'Lhassa Apso': 'xs',
   'Beagle': 's', 'Boston Terrier': 's', 'Bouledogue Français': 's', 'Caniche Nain': 's',
   'Cavalier King Charles': 's', 'Cocker Américain': 's', 'Cocker Spaniel': 's',
-  'Fox Terrier': 's', 'Jack Russell': 's', 'Pug': 's', 'Shiba Inu': 's',
-  'Teckel': 's', 'Whippet': 's', 'Basenji': 's',
-  // M
+  'Fox Terrier': 's', 'Jack Russell': 's', 'Shiba Inu': 's', 'Teckel': 's', 'Whippet': 's', 'Basenji': 's',
   'Berger Australien': 'm', 'Border Collie': 'm', 'Boxer': 'm', 'Braque de Weimar': 'm',
   'Bull Terrier': 'm', 'Bulldog Anglais': 'm', 'Caniche Royal': 'm', 'Colley': 'm',
   'Dalmatien': 'm', 'Épagneul Breton': 'm', 'Husky Sibérien': 'm', 'Labrador': 'm',
   'Golden Retriever': 'm', 'Pointer': 'm', 'Setter Irlandais': 'm',
   'Springer Spaniel': 'm', 'Staffordshire Bull Terrier': 'm',
-  // L
   'Akita Inu': 'l', 'Alaskan Malamute': 'l', 'Berger Allemand': 'l',
   'Berger Belge Malinois': 'l', 'Bouledogue Américain': 'l', 'Chow-Chow': 'l',
   'Dobermann': 'l', 'Dogue Allemand': 'l', 'Dogue de Bordeaux': 'l',
@@ -42,7 +36,7 @@ export default function Register() {
     firstName: '', lastName: '', email: '', password: '', phone: '',
     dogName: '', dogBreed: '', dogSize: '', dogGender: '', dogAge: 2, dogNotes: '', dogPhoto: ''
   });
- const [error, setError] = useState('');
+  const [error, setError] = useState('');
   const [autoSize, setAutoSize] = useState(null);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoValid, setPhotoValid] = useState(false);
@@ -51,7 +45,6 @@ export default function Register() {
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
-  // Auto-gabarit selon la race
   useEffect(() => {
     if (form.dogBreed && BREED_SIZE[form.dogBreed]) {
       const size = BREED_SIZE[form.dogBreed];
@@ -73,10 +66,13 @@ export default function Register() {
   };
 
   const validateStep2 = () => {
+    if (!form.dogPhoto) return 'La photo de votre chien est obligatoire';
+    if (photoLoading) return 'Analyse de la photo en cours...';
+    if (!photoValid) return 'Photo invalide — prenez une photo claire de votre chien';
     if (!form.dogName) return 'Entrez le nom de votre chien';
+    if (!form.dogGender) return 'Sélectionnez le genre';
     if (!form.dogBreed) return 'Sélectionnez une race';
     if (!form.dogSize) return 'Sélectionnez un gabarit';
-    if (!form.dogGender) return 'Sélectionnez le genre';
     return null;
   };
 
@@ -87,6 +83,67 @@ export default function Register() {
     setStep(s => s + 1);
   };
 
+  const handlePhoto = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setPhotoError('Photo trop lourde (max 5 Mo)'); return; }
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const base64 = ev.target.result;
+      update('dogPhoto', base64);
+      setPhotoError('');
+      setPhotoValid(false);
+      setPhotoLoading(true);
+      setPhotoAnalysis('');
+      try {
+        const base64Data = base64.split(',')[1];
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 300,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: file.type, data: base64Data } },
+                { type: 'text', text: `Analyse cette photo et réponds UNIQUEMENT en JSON sans markdown:\n{"isdog":true/false,"breed":"race détectée ou null","size":"xs/s/m/l ou null","valid":true/false,"message":"message court en français"}\n\nRègles:\n- isdog: true si c'est clairement un chien\n- breed: race la plus probable en français\n- size: xs(<10kg), s(10-20kg), m(20-35kg), l(>35kg)\n- valid: true si c'est un vrai chien clairement visible\n- message: explication courte max 15 mots` }
+              ]
+            }]
+          })
+        });
+        const data = await res.json();
+        const text = data.content?.[0]?.text || '{}';
+        const result = JSON.parse(text.replace(/```json|```/g, '').trim());
+        if (!result.isdog || !result.valid) {
+          setPhotoError(result.message || 'Photo invalide — prenez une photo claire de votre chien');
+          setPhotoValid(false);
+          update('dogPhoto', '');
+        } else {
+          setPhotoValid(true);
+          setPhotoAnalysis(result.message || 'Photo validée !');
+          if (!form.dogBreed && result.breed) {
+            const matched = BREEDS.find(b => b.toLowerCase().includes(result.breed.toLowerCase()));
+            if (matched) update('dogBreed', matched);
+          }
+        }
+      } catch (err) {
+        setPhotoValid(true);
+        setPhotoAnalysis('Photo acceptée');
+      } finally {
+        setPhotoLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const formatAge = (age) => {
+    if (age === 0) return 'Moins de 1 an';
+    if (age === 1) return '1 an';
+    if (age >= 15) return '15 ans et +';
+    return `${age} ans`;
+  };
+
   const inputStyle = {
     width: '100%', padding: '14px 16px', borderRadius: 12,
     border: '1.5px solid #E8E8E8', fontSize: 15, fontFamily: 'inherit',
@@ -94,13 +151,6 @@ export default function Register() {
     marginBottom: 12, boxSizing: 'border-box'
   };
   const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
-
-  const formatAge = (age) => {
-    if (age < 1) return 'Moins de 1 an';
-    if (age === 1) return '1 an';
-    if (age >= 15) return '15 ans et +';
-    return `${age} ans`;
-  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
@@ -150,9 +200,14 @@ export default function Register() {
               onChange={e => update('password', e.target.value)} />
             <label style={labelStyle}>Téléphone * <span style={{ color: '#AAA', fontWeight: 400 }}>(commence par 6 ou 7)</span></label>
             <div style={{ position: 'relative', marginBottom: 12 }}>
-              <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: '#555' }}>🇫🇷 +33</span>
-             <input style={{ ...inputStyle, paddingLeft: 80, marginBottom: 0 }} type="tel" placeholder="6 12 34 56 78" maxLength={13}
-                value={form.phone} onChange={e => {
+              <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: '#555', zIndex: 1 }}>🇫🇷 +33</span>
+              <input
+                style={{ ...inputStyle, paddingLeft: 80, marginBottom: 0 }}
+                type="tel"
+                placeholder="6 12 34 56 78"
+                maxLength={13}
+                value={form.phone}
+                onChange={e => {
                   const val = e.target.value.replace(/[^\d\s]/g, '');
                   update('phone', val);
                 }} />
@@ -163,14 +218,21 @@ export default function Register() {
           </div>
         )}
 
-        {/* ÉTAPE 2 — PROFIL CHIEN */}
+        {/* ÉTAPE 2 */}
         {step === 2 && (
           <div>
-      {/* PHOTO CHIEN */}
-            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+            {/* PHOTO */}
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div
                 onClick={() => !photoLoading && document.getElementById('dogPhoto').click()}
-                style={{ width: 110, height: 110, borderRadius: '50%', background: form.dogPhoto ? 'transparent' : '#E1F5EE', border: photoError ? '2.5px solid #E24B4A' : photoValid ? '2.5px solid #1D9E75' : '2.5px dashed #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: photoLoading ? 'wait' : 'pointer', margin: '0 auto 10px', overflow: 'hidden', position: 'relative' }}>
+                style={{
+                  width: 110, height: 110, borderRadius: '50%',
+                  background: form.dogPhoto ? 'transparent' : '#E1F5EE',
+                  border: photoError ? '2.5px solid #E24B4A' : photoValid ? '2.5px solid #1D9E75' : '2.5px dashed #1D9E75',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: photoLoading ? 'wait' : 'pointer',
+                  margin: '0 auto 10px', overflow: 'hidden', position: 'relative'
+                }}>
                 {form.dogPhoto
                   ? <img src={form.dogPhoto} alt="chien" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ textAlign: 'center' }}>
@@ -179,95 +241,22 @@ export default function Register() {
                     </div>
                 }
                 {photoLoading && (
-                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ fontSize: 20 }}>🔍</div>
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 24 }}>🔍</div>
                     <div style={{ fontSize: 10, color: '#1D9E75', fontWeight: 700 }}>Analyse IA...</div>
                   </div>
                 )}
                 {photoValid && !photoLoading && (
-                  <div style={{ position: 'absolute', bottom: 4, right: 4, width: 24, height: 24, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>✅</div>
+                  <div style={{ position: 'absolute', bottom: 4, right: 4, width: 26, height: 26, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>✅</div>
                 )}
               </div>
-              <input id="dogPhoto" type="file" accept="image/*" style={{ display: 'none' }}
-                onChange={async e => {
-                  const file = e.target.files[0];
-                  if (!file) return;
-                  if (file.size > 5 * 1024 * 1024) { setPhotoError('Photo trop lourde (max 5 Mo)'); return; }
-                  const reader = new FileReader();
-                  reader.onload = async ev => {
-                    const base64 = ev.target.result;
-                    update('dogPhoto', base64);
-                    setPhotoError('');
-                    setPhotoValid(false);
-                    setPhotoLoading(true);
-                    setPhotoAnalysis('');
-                    try {
-                      const base64Data = base64.split(',')[1];
-                      const res = await fetch('https://api.anthropic.com/v1/messages', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          model: 'claude-sonnet-4-20250514',
-                          max_tokens: 300,
-                          messages: [{
-                            role: 'user',
-                            content: [
-                              { type: 'image', source: { type: 'base64', media_type: file.type, data: base64Data } },
-                              { type: 'text', text: `Analyse cette photo et réponds UNIQUEMENT en JSON sans markdown:\n{"isdog":true/false,"breed":"race détectée ou null","size":"xs/s/m/l ou null","valid":true/false,"message":"message court en français"}\n\nRègles:\n- isdog: true si c'est clairement un chien\n- breed: race la plus probable\n- size: xs(<10kg), s(10-20kg), m(20-35kg), l(>35kg)\n- valid: true si c'est un vrai chien clairement visible\n- message: explication courte (max 15 mots)` }
-                            ]
-                          }]
-                        })
-                      });
-                      const data = await res.json();
-                      const text = data.content?.[0]?.text || '{}';
-                      const result = JSON.parse(text.replace(/```json|```/g, '').trim());
-                      if (!result.isdog || !result.valid) {
-                        setPhotoError(result.message || 'Photo invalide — veuillez prendre une photo claire de votre chien');
-                        setPhotoValid(false);
-                        update('dogPhoto', '');
-                      } else {
-                        setPhotoValid(true);
-                        setPhotoAnalysis(result.message || '');
-                        // Auto-suggérer la race si non encore sélectionnée
-                        if (!form.dogBreed && result.breed) {
-                          const matchedBreed = BREEDS.find(b => b.toLowerCase().includes(result.breed.toLowerCase()));
-                          if (matchedBreed) update('dogBreed', matchedBreed);
-                        }
-                        // Vérifier la cohérence gabarit si race déjà choisie
-                        if (form.dogBreed && result.size && BREED_SIZE[form.dogBreed]) {
-                          const expectedSize = BREED_SIZE[form.dogBreed];
-                          if (result.size !== expectedSize) {
-                            setPhotoAnalysis(`⚠️ Le gabarit détecté (${result.size.toUpperCase()}) diffère de la race sélectionnée`);
-                          }
-                        }
-                      }
-                    } catch(e) {
-                      setPhotoValid(true);
-                      setPhotoAnalysis('');
-                    } finally {
-                      setPhotoLoading(false);
-                    }
-                  };
-                  reader.readAsDataURL(file);
-                }} />
-              <div style={{ fontSize: 12, color: photoError ? '#E24B4A' : photoValid ? '#1D9E75' : '#AAA', fontWeight: photoError || photoValid ? 600 : 400, minHeight: 16 }}>
-                {photoError ? `⚠️ ${photoError}` : photoValid ? `✅ ${photoAnalysis || 'Photo validée !'}` : form.dogPhoto ? '🔍 Analyse en cours...' : 'Photo obligatoire · JPG ou PNG · max 5 Mo'}
-              </div>
-            </div>
-              <input id="dogPhoto" type="file" accept="image/*" style={{ display: 'none' }}
-                onChange={e => {
-                  const file = e.target.files[0];
-                  if (!file) return;
-                  if (file.size > 5 * 1024 * 1024) { alert('Photo trop lourde (max 5 Mo)'); return; }
-                  const reader = new FileReader();
-                  reader.onload = ev => update('dogPhoto', ev.target.result);
-                  reader.readAsDataURL(file);
-                }} />
-              <div style={{ fontSize: 12, color: '#AAA' }}>
-                {form.dogPhoto ? '✅ Photo ajoutée — appuyez pour changer' : 'Optionnel · JPG ou PNG · max 5 Mo'}
+              <input id="dogPhoto" type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhoto} />
+              <div style={{ fontSize: 12, fontWeight: photoError || photoValid ? 600 : 400, color: photoError ? '#E24B4A' : photoValid ? '#1D9E75' : '#AAA', minHeight: 18 }}>
+                {photoError ? `⚠️ ${photoError}` : photoValid ? `✅ ${photoAnalysis}` : form.dogPhoto ? '🔍 Analyse en cours...' : 'Photo obligatoire · JPG ou PNG · max 5 Mo'}
               </div>
             </div>
 
+            {/* NOM */}
             <label style={labelStyle}>Nom de votre chien *</label>
             <input style={inputStyle} placeholder="Rex, Luna, Nala..." value={form.dogName}
               onChange={e => update('dogName', e.target.value)} />
@@ -283,14 +272,12 @@ export default function Register() {
               ))}
             </div>
 
-            {/* ÂGE SLIDER */}
-            <label style={labelStyle}>
-              Âge * — <span style={{ color: '#1D9E75', fontWeight: 700 }}>{formatAge(form.dogAge)}</span>
-            </label>
+            {/* ÂGE */}
+            <label style={labelStyle}>Âge * — <span style={{ color: '#1D9E75', fontWeight: 700 }}>{formatAge(form.dogAge)}</span></label>
             <div style={{ marginBottom: 16 }}>
               <input type="range" min="0" max="15" step="1" value={form.dogAge}
                 onChange={e => update('dogAge', parseInt(e.target.value))}
-                style={{ width: '100%', accentColor: '#1D9E75', height: 6, cursor: 'pointer' }} />
+                style={{ width: '100%', accentColor: '#1D9E75', cursor: 'pointer' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#AAA', marginTop: 4 }}>
                 <span>Chiot</span><span>5 ans</span><span>10 ans</span><span>15 ans+</span>
               </div>
@@ -304,7 +291,7 @@ export default function Register() {
               {BREEDS.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
 
-            {/* GABARIT AUTO */}
+            {/* GABARIT */}
             <label style={labelStyle}>
               Gabarit *
               {autoSize && (
@@ -313,20 +300,12 @@ export default function Register() {
                 </span>
               )}
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               {Object.entries(SIZE_LABELS).map(([id, s]) => {
                 const isLocked = autoSize && autoSize !== id;
                 return (
-                  <div key={id}
-                    onClick={() => !isLocked && update('dogSize', id)}
-                    style={{
-                      padding: '14px', borderRadius: 12, textAlign: 'center',
-                      border: form.dogSize === id ? `2px solid ${s.color}` : '1.5px solid #E8E8E8',
-                      background: form.dogSize === id ? '#E1F5EE' : isLocked ? '#FAFAFA' : '#FAFAFA',
-                      cursor: isLocked ? 'not-allowed' : 'pointer',
-                      opacity: isLocked ? 0.35 : 1,
-                      transition: 'all 0.2s'
-                    }}>
+                  <div key={id} onClick={() => !isLocked && update('dogSize', id)}
+                    style={{ padding: '14px', borderRadius: 12, textAlign: 'center', border: form.dogSize === id ? `2px solid ${s.color}` : '1.5px solid #E8E8E8', background: form.dogSize === id ? '#E1F5EE' : '#FAFAFA', cursor: isLocked ? 'not-allowed' : 'pointer', opacity: isLocked ? 0.3 : 1, transition: 'all 0.2s' }}>
                     <div style={{ fontSize: 20, marginBottom: 4 }}>{s.label}</div>
                     <div style={{ fontSize: 12, color: '#888' }}>{s.desc}</div>
                   </div>
@@ -340,6 +319,7 @@ export default function Register() {
               </div>
             )}
 
+            {/* NOTES */}
             <label style={labelStyle}>Notes spéciales (optionnel)</label>
             <textarea style={{ ...inputStyle, height: 80, resize: 'none' }}
               placeholder="Allergies, médicaments, comportement particulier..."
@@ -347,30 +327,28 @@ export default function Register() {
           </div>
         )}
 
-        {/* ÉTAPE 3 — CONFIRMATION */}
+        {/* ÉTAPE 3 */}
         {step === 3 && (
           <div style={{ textAlign: 'center', paddingTop: 20 }}>
             <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
-            <h2 style={{ fontSize: 24, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>
-              Bienvenue {form.firstName} !
-            </h2>
+            <h2 style={{ fontSize: 24, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Bienvenue {form.firstName} !</h2>
             <p style={{ fontSize: 15, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>
               Votre compte est créé et {form.dogName} est prêt pour ses premières balades Dogger.
             </p>
             <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '20px', marginBottom: 28, textAlign: 'left' }}>
+              {form.dogPhoto && (
+                <div style={{ textAlign: 'center', marginBottom: 14 }}>
+                  <img src={form.dogPhoto} alt={form.dogName} style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '3px solid #1D9E75' }} />
+                </div>
+              )}
               <div style={{ fontSize: 13, color: '#888', marginBottom: 12, fontWeight: 600 }}>RÉCAPITULATIF</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>👤 {form.firstName} {form.lastName}</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📧 {form.email}</div>
-              {form.phone && <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📱 +33 {form.phone}</div>}
+              <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📱 +33 {form.phone}</div>
               <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>🐾 {form.dogName} — {form.dogBreed}</div>
-              <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>
-                {form.dogGender === 'male' ? '♂️ Mâle' : '♀️ Femelle'} · {formatAge(form.dogAge)}
-              </div>
-              <div style={{ fontSize: 14, color: '#1A1A1A' }}>
-                📏 Gabarit {SIZE_LABELS[form.dogSize]?.desc}
-                {autoSize && <span style={{ fontSize: 12, color: '#1D9E75', marginLeft: 6 }}>✨ auto</span>}
-              </div>
+              <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>{form.dogGender === 'male' ? '♂️ Mâle' : '♀️ Femelle'} · {formatAge(form.dogAge)}</div>
+              <div style={{ fontSize: 14, color: '#1A1A1A' }}>📏 Gabarit {SIZE_LABELS[form.dogSize]?.desc}</div>
             </div>
           </div>
         )}

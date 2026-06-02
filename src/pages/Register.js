@@ -104,11 +104,18 @@ export default function Register() {
         email: form.email,
         password: form.password,
         options: {
-          data: {
+        data: {
             first_name: form.firstName,
             last_name: form.lastName,
             phone: form.phone,
             photo_url: form.ownerPhoto,
+            dog_name: form.dogName,
+            dog_breed: form.dogBreed,
+            dog_size: form.dogSize,
+            dog_gender: form.dogGender,
+            dog_age: String(form.dogAge),
+            dog_notes: form.dogNotes,
+            dog_photo: form.dogPhoto,
           }
         }
       });
@@ -124,19 +131,7 @@ export default function Register() {
         setLoading(false);
         return;
       }
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const { error: dogError } = await supabase.from('dogs').insert({
-        owner_id: data.user.id,
-        name: form.dogName,
-        breed: form.dogBreed,
-        size: form.dogSize,
-        gender: form.dogGender,
-        age: form.dogAge,
-        notes: form.dogNotes,
-        photo_url: form.dogPhoto,
-      });
-      if (dogError) console.error('Dog error:', dogError.message);
-      setStep(3);
+      a      setStep(3);
     } catch (e) {
       console.error(e);
       setError('Une erreur est survenue — réessayez');

@@ -48,8 +48,6 @@ export default function Dashboard() {
     };
     loadData();
   }, [navigate]);
-    loadData();
-  }, [navigate]);
 
   useEffect(() => {
     if (!activeWalk) return;

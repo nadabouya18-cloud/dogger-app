@@ -29,13 +29,16 @@ export default function Dashboard() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { navigate('/login'); return; }
+        // Attendre que la session soit chargée
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { navigate('/login'); return; }
+        
         const { data: profileData } = await supabase
-          .from('profiles').select('*').eq('id', user.id).single();
+          .from('profiles').select('*').eq('id', session.user.id).single();
         if (profileData) setProfile(profileData);
+        
         const { data: dogsData } = await supabase
-          .from('dogs').select('*').eq('owner_id', user.id);
+          .from('dogs').select('*').eq('owner_id', session.user.id);
         if (dogsData) setDogs(dogsData);
       } catch (e) {
         console.error(e);
@@ -43,6 +46,8 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
+    loadData();
+  }, [navigate]);
     loadData();
   }, [navigate]);
 

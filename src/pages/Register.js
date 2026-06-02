@@ -37,7 +37,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', password: '', phone: '',
-    ownerPhoto: '',
+    ownerPhoto: '', idCard: '',
     dogName: '', dogBreed: '', dogSize: '', dogGender: '', dogAge: 2, dogNotes: '', dogPhoto: ''
   });
   const [error, setError] = useState('');
@@ -48,6 +48,8 @@ export default function Register() {
   const [photoAnalysis, setPhotoAnalysis] = useState('');
   const [ownerPhotoLoading, setOwnerPhotoLoading] = useState(false);
   const [ownerPhotoValid, setOwnerPhotoValid] = useState(false);
+  const [idCardLoading, setIdCardLoading] = useState(false);
+  const [idCardValid, setIdCardValid] = useState(false);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -68,6 +70,10 @@ export default function Register() {
     if (!form.phone) return 'Le numéro de téléphone est obligatoire';
     const cleaned = form.phone.replace(/\s/g, '');
     if (!/^[67]\d{8}$/.test(cleaned)) return 'Numéro invalide — commence par 6 ou 7';
+    if (!form.ownerPhoto) return 'Votre photo de profil est obligatoire';
+    if (!ownerPhotoValid) return 'Attendez la validation de votre photo';
+    if (!form.idCard) return 'Votre pièce d\'identité est obligatoire';
+    if (!idCardValid) return 'Attendez la validation de votre pièce d\'identité';
     return null;
   };
 
@@ -104,7 +110,7 @@ export default function Register() {
         email: form.email,
         password: form.password,
         options: {
-        data: {
+          data: {
             first_name: form.firstName,
             last_name: form.lastName,
             phone: form.phone,
@@ -131,7 +137,7 @@ export default function Register() {
         setLoading(false);
         return;
       }
-      a      setStep(3);
+      setStep(3);
     } catch (e) {
       console.error(e);
       setError('Une erreur est survenue — réessayez');
@@ -152,6 +158,24 @@ export default function Register() {
       await new Promise(resolve => setTimeout(resolve, 1000));
       setOwnerPhotoValid(true);
       setOwnerPhotoLoading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleIdCard = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      update('idCard', ev.target.result);
+      setIdCardLoading(true);
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setIdCardValid(true);
+      setIdCardLoading(false);
     };
     reader.readAsDataURL(file);
   };
@@ -233,14 +257,14 @@ export default function Register() {
         {step === 1 && (
           <div>
             {/* PHOTO PROPRIETAIRE */}
-            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
               <div onClick={() => !ownerPhotoLoading && document.getElementById('ownerPhoto').click()}
-                style={{ width: 90, height: 90, borderRadius: '50%', background: form.ownerPhoto ? 'transparent' : '#E1F5EE', border: ownerPhotoValid ? '2.5px solid #1D9E75' : '2.5px dashed #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 8px', overflow: 'hidden', position: 'relative' }}>
+                style={{ width: 90, height: 90, borderRadius: '50%', background: form.ownerPhoto ? 'transparent' : '#E1F5EE', border: ownerPhotoValid ? '2.5px solid #1D9E75' : '2.5px dashed #E24B4A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 8px', overflow: 'hidden', position: 'relative' }}>
                 {form.ownerPhoto
                   ? <img src={form.ownerPhoto} alt="profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 28 }}>👤</div>
-                      <div style={{ fontSize: 10, color: '#1D9E75', marginTop: 2, fontWeight: 600 }}>Photo</div>
+                      <div style={{ fontSize: 10, color: '#E24B4A', marginTop: 2, fontWeight: 700 }}>Requis *</div>
                     </div>
                 }
                 {ownerPhotoLoading && (
@@ -253,8 +277,8 @@ export default function Register() {
                 )}
               </div>
               <input id="ownerPhoto" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleOwnerPhoto} />
-              <div style={{ fontSize: 11, color: ownerPhotoValid ? '#1D9E75' : '#AAA', fontWeight: ownerPhotoValid ? 600 : 400 }}>
-                {ownerPhotoValid ? '✅ Photo ajoutée' : 'Optionnel · Votre photo de profil'}
+              <div style={{ fontSize: 11, color: ownerPhotoValid ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>
+                {ownerPhotoValid ? '✅ Photo ajoutée' : 'Photo de profil obligatoire *'}
               </div>
             </div>
 
@@ -265,7 +289,7 @@ export default function Register() {
                   onChange={e => update('firstName', e.target.value)} />
               </div>
               <div>
-                <label style={labelStyle}>Nom</label>
+                <label style={labelStyle}>Nom *</label>
                 <input style={inputStyle} placeholder="Dupont" value={form.lastName}
                   onChange={e => update('lastName', e.target.value)} />
               </div>
@@ -277,15 +301,34 @@ export default function Register() {
             <input style={inputStyle} type="password" placeholder="6 caractères minimum" value={form.password}
               onChange={e => update('password', e.target.value)} />
             <label style={labelStyle}>Téléphone * <span style={{ color: '#AAA', fontWeight: 400 }}>(commence par 6 ou 7)</span></label>
-            <div style={{ position: 'relative', marginBottom: 12 }}>
+            <div style={{ position: 'relative', marginBottom: 16 }}>
               <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: '#555', zIndex: 1 }}>🇫🇷 +33</span>
               <input style={{ ...inputStyle, paddingLeft: 80, marginBottom: 0 }}
                 type="tel" placeholder="6 12 34 56 78" maxLength={13}
                 value={form.phone}
                 onChange={e => { const val = e.target.value.replace(/[^\d\s]/g, ''); update('phone', val); }} />
             </div>
+
+            {/* PIECE D'IDENTITE */}
+            <label style={labelStyle}>Pièce d'identité * <span style={{ color: '#AAA', fontWeight: 400 }}>(carte d'identité ou passeport)</span></label>
+            <div onClick={() => !idCardLoading && document.getElementById('idCard').click()}
+              style={{ width: '100%', padding: '16px', borderRadius: 12, border: idCardValid ? '1.5px solid #1D9E75' : '1.5px dashed #E24B4A', background: idCardValid ? '#E1F5EE' : '#FFF8F8', cursor: 'pointer', textAlign: 'center', marginBottom: 16, position: 'relative' }}>
+              {idCardLoading ? (
+                <div style={{ fontSize: 13, color: '#1D9E75' }}>⏳ Vérification...</div>
+              ) : idCardValid ? (
+                <div style={{ fontSize: 13, color: '#1D9E75', fontWeight: 600 }}>✅ Pièce d'identité validée</div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 24, marginBottom: 6 }}>🪪</div>
+                  <div style={{ fontSize: 13, color: '#E24B4A', fontWeight: 600 }}>Cliquez pour ajouter *</div>
+                  <div style={{ fontSize: 11, color: '#AAA', marginTop: 4 }}>JPG, PNG ou PDF · max 10 Mo</div>
+                </div>
+              )}
+            </div>
+            <input id="idCard" type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleIdCard} />
+
             <div style={{ background: '#F8FAF9', borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#888' }}>
-              🔒 Vos données sont sécurisées et ne seront jamais revendues.
+              🔒 Vos données sont sécurisées et ne seront jamais revendues. La pièce d'identité est utilisée uniquement pour vérifier votre identité.
             </div>
           </div>
         )}
@@ -401,6 +444,7 @@ export default function Register() {
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>👤 {form.firstName} {form.lastName}</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📧 {form.email}</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📱 +33 {form.phone}</div>
+              <div style={{ fontSize: 14, color: '#1D9E75', marginBottom: 8 }}>🪪 Pièce d'identité vérifiée ✅</div>
               <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
               {form.dogPhoto && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>

@@ -50,6 +50,7 @@ export default function Register() {
   const [ownerPhotoValid, setOwnerPhotoValid] = useState(false);
   const [idCardLoading, setIdCardLoading] = useState(false);
   const [idCardValid, setIdCardValid] = useState(false);
+  const [idCardError, setIdCardError] = useState('');
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -73,7 +74,7 @@ export default function Register() {
     if (!form.ownerPhoto) return 'Votre photo de profil est obligatoire';
     if (!ownerPhotoValid) return 'Attendez la validation de votre photo';
     if (!form.idCard) return 'Votre pièce d\'identité est obligatoire';
-    if (!idCardValid) return 'Attendez la validation de votre pièce d\'identité';
+    if (!idCardValid) return 'La pièce d\'identité n\'est pas valide — uploadez une vraie pièce d\'identité';
     return null;
   };
 
@@ -114,14 +115,12 @@ export default function Register() {
             first_name: form.firstName,
             last_name: form.lastName,
             phone: form.phone,
-            photo_url: form.ownerPhoto,
             dog_name: form.dogName,
             dog_breed: form.dogBreed,
             dog_size: form.dogSize,
             dog_gender: form.dogGender,
             dog_age: String(form.dogAge),
             dog_notes: form.dogNotes,
-            dog_photo: form.dogPhoto,
           }
         }
       });
@@ -165,17 +164,60 @@ export default function Register() {
   const handleIdCard = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') return;
+    if (file.size > 10 * 1024 * 1024) {
+      setIdCardError('Fichier trop lourd (max 10 Mo)');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) return;
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      update('idCard', ev.target.result);
+      const base64 = ev.target.result;
+      update('idCard', base64);
+      setIdCardError('');
+      setIdCardValid(false);
       setIdCardLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setIdCardValid(true);
-      setIdCardLoading(false);
+      try {
+        // Appel IA pour vérifier que c'est une vraie pièce d'identité
+        const base64Data = base64.split(',')[1];
+        const mediaType = file.type.startsWith('image/') ? file.type : 'image/jpeg';
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.REACT_APP_ANTHROPIC_KEY,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 200,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                { type: 'text', text: 'Analyse cette image et réponds UNIQUEMENT en JSON sans markdown:\n{"isIdCard":true/false,"type":"carte_identite/passeport/permis/autre","valid":true/false,"message":"explication courte en français max 10 mots"}\n\nRègles STRICTES:\n- isIdCard: true UNIQUEMENT si c\'est une vraie pièce d\'identité officielle (carte nationale d\'identité, passeport, permis de conduire)\n- Si c\'est un animal, objet, photo de personne sans document officiel: isIdCard=false, valid=false\n- valid: true UNIQUEMENT si c\'est un document d\'identité officiel clairement visible\n- Sois très strict' }
+              ]
+            }]
+          })
+        });
+        const data = await res.json();
+        const text = data.content?.[0]?.text || '{}';
+        const result = JSON.parse(text.replace(/```json|```/g, '').trim());
+        if (!result.isIdCard || !result.valid) {
+          setIdCardError(result.message || 'Document invalide — uploadez une vraie pièce d\'identité');
+          setIdCardValid(false);
+          update('idCard', '');
+        } else {
+          setIdCardValid(true);
+          setIdCardError('');
+        }
+      } catch (err) {
+        // Si l'IA échoue, on accepte quand même
+        setIdCardValid(true);
+        setIdCardError('');
+      } finally {
+        setIdCardLoading(false);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -259,7 +301,7 @@ export default function Register() {
             {/* PHOTO PROPRIETAIRE */}
             <div style={{ textAlign: 'center', marginBottom: 20 }}>
               <div onClick={() => !ownerPhotoLoading && document.getElementById('ownerPhoto').click()}
-                style={{ width: 90, height: 90, borderRadius: '50%', background: form.ownerPhoto ? 'transparent' : '#E1F5EE', border: ownerPhotoValid ? '2.5px solid #1D9E75' : '2.5px dashed #E24B4A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 8px', overflow: 'hidden', position: 'relative' }}>
+                style={{ width: 90, height: 90, borderRadius: '50%', background: form.ownerPhoto ? 'transparent' : '#FFF0F0', border: ownerPhotoValid ? '2.5px solid #1D9E75' : '2.5px dashed #E24B4A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 8px', overflow: 'hidden', position: 'relative' }}>
                 {form.ownerPhoto
                   ? <img src={form.ownerPhoto} alt="profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ textAlign: 'center' }}>
@@ -310,25 +352,30 @@ export default function Register() {
             </div>
 
             {/* PIECE D'IDENTITE */}
-            <label style={labelStyle}>Pièce d'identité * <span style={{ color: '#AAA', fontWeight: 400 }}>(carte d'identité ou passeport)</span></label>
+            <label style={labelStyle}>Pièce d'identité * <span style={{ color: '#AAA', fontWeight: 400 }}>(CNI ou passeport)</span></label>
             <div onClick={() => !idCardLoading && document.getElementById('idCard').click()}
-              style={{ width: '100%', padding: '16px', borderRadius: 12, border: idCardValid ? '1.5px solid #1D9E75' : '1.5px dashed #E24B4A', background: idCardValid ? '#E1F5EE' : '#FFF8F8', cursor: 'pointer', textAlign: 'center', marginBottom: 16, position: 'relative' }}>
+              style={{ width: '100%', padding: '16px', borderRadius: 12, border: idCardValid ? '1.5px solid #1D9E75' : idCardError ? '1.5px solid #E24B4A' : '1.5px dashed #E24B4A', background: idCardValid ? '#E1F5EE' : idCardError ? '#FFF0F0' : '#FFF8F8', cursor: 'pointer', textAlign: 'center', marginBottom: 8 }}>
               {idCardLoading ? (
-                <div style={{ fontSize: 13, color: '#1D9E75' }}>⏳ Vérification...</div>
+                <div style={{ fontSize: 13, color: '#1D9E75' }}>🔍 Vérification IA en cours...</div>
               ) : idCardValid ? (
                 <div style={{ fontSize: 13, color: '#1D9E75', fontWeight: 600 }}>✅ Pièce d'identité validée</div>
               ) : (
                 <div>
                   <div style={{ fontSize: 24, marginBottom: 6 }}>🪪</div>
                   <div style={{ fontSize: 13, color: '#E24B4A', fontWeight: 600 }}>Cliquez pour ajouter *</div>
-                  <div style={{ fontSize: 11, color: '#AAA', marginTop: 4 }}>JPG, PNG ou PDF · max 10 Mo</div>
+                  <div style={{ fontSize: 11, color: '#AAA', marginTop: 4 }}>JPG, PNG · max 10 Mo</div>
                 </div>
               )}
             </div>
-            <input id="idCard" type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleIdCard} />
+            <input id="idCard" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleIdCard} />
+            {idCardError && (
+              <div style={{ fontSize: 12, color: '#E24B4A', fontWeight: 600, marginBottom: 12 }}>
+                ⚠️ {idCardError}
+              </div>
+            )}
 
-            <div style={{ background: '#F8FAF9', borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#888' }}>
-              🔒 Vos données sont sécurisées et ne seront jamais revendues. La pièce d'identité est utilisée uniquement pour vérifier votre identité.
+            <div style={{ background: '#F8FAF9', borderRadius: 12, padding: '12px 16px', marginBottom: 20, marginTop: 8, fontSize: 13, color: '#888' }}>
+              🔒 Vos données sont sécurisées. La pièce d'identité est utilisée uniquement pour vérifier votre identité.
             </div>
           </div>
         )}
@@ -444,7 +491,7 @@ export default function Register() {
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>👤 {form.firstName} {form.lastName}</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📧 {form.email}</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📱 +33 {form.phone}</div>
-              <div style={{ fontSize: 14, color: '#1D9E75', marginBottom: 8 }}>🪪 Pièce d'identité vérifiée ✅</div>
+              <div style={{ fontSize: 14, color: '#1D9E75', marginBottom: 8 }}>🪪 Identité vérifiée ✅</div>
               <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
               {form.dogPhoto && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>

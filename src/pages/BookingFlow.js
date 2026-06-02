@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const SERVICES = [
-  { id: 'walk',   icon: '🐕', name: 'Balade',        desc: 'Promenade dans le quartier',     pricePerMin: 0.42, popular: false },
-  { id: 'shared', icon: '🐕‍🦺', name: 'Balade Shared', desc: 'Balade en groupe économique',    pricePerMin: 0.25, popular: true  },
-  { id: 'parc',   icon: '🌳', name: 'Dogger Parc',   desc: 'Session de jeu en parc canin',   pricePerMin: 0.35, popular: false },
-  { id: 'home',   icon: '🏠', name: 'Garde à domicile', desc: 'Garde chez le promeneur',     fixedPrice: 25,    popular: false },
+  { id: 'walk',   icon: '🐕',  name: 'Balade',           desc: 'Promenade dans le quartier',   pricePerMin: 0.42, popular: false },
+  { id: 'shared', icon: '🐕‍🦺', name: 'Balade Shared',    desc: 'Balade en groupe économique',  pricePerMin: 0.25, popular: true  },
+  { id: 'parc',   icon: '🌳',  name: 'Dogger Parc',      desc: 'Session de jeu en parc canin', pricePerMin: 0.35, popular: false },
+  { id: 'home',   icon: '🏠',  name: 'Garde à domicile', desc: 'Garde chez le promeneur',      fixedPrice: 25,    popular: false },
 ];
 
 const DURATIONS = [
@@ -45,11 +45,47 @@ export default function BookingFlow() {
   const [matched, setMatched] = useState(false);
   const [walker, setWalker] = useState(null);
   const [dots, setDots] = useState([false, false, false]);
+  const [locating, setLocating] = useState(false);
+  const addressRef = useRef(null);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
   const selectedService = SERVICES.find(s => s.id === form.service);
   const price = getPrice(selectedService, form.duration);
 
+  // Google Maps Autocomplete
+  useEffect(() => {
+    if (step !== 1 || !window.google) return;
+    const autocomplete = new window.google.maps.places.Autocomplete(
+      addressRef.current,
+      { types: ['address'], componentRestrictions: { country: 'fr' } }
+    );
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      if (place.formatted_address) update('address', place.formatted_address);
+    });
+  }, [step]);
+
+  // Géolocalisation
+  const handleLocate = () => {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        const res = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.REACT_APP_GOOGLE_MAPS_KEY}&language=fr`
+        );
+        const data = await res.json();
+        if (data.results[0]) update('address', data.results[0].formatted_address);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLocating(false);
+      }
+    }, () => setLocating(false));
+  };
+
+  // Animation recherche
   useEffect(() => {
     if (!searching) return;
     let i = 0;
@@ -84,39 +120,40 @@ export default function BookingFlow() {
 
   const validateStep1 = () => {
     if (!form.address) return 'Entrez votre adresse';
-    return null;
-  };
-
-  const validateStep2 = () => {
     if (mode === 'later' && !form.date) return 'Choisissez une date';
     if (mode === 'later' && !form.time) return 'Choisissez une heure';
     return null;
   };
 
   const nextStep = () => {
-    const err = step === 1 ? validateStep1() : validateStep2();
-    if (err) { setError(err); return; }
+    const err = validateStep1();
+    if (step === 1 && err) { setError(err); return; }
     setError('');
     setStep(s => s + 1);
   };
 
   const confirm = () => {
-    if (mode === 'now') { setSearching(true); }
-    else { setMatched(true); }
+    if (mode === 'now') setSearching(true);
+    else setMatched(true);
   };
 
-  // ÉCRAN RECHERCHE
+  const inputStyle = {
+    width: '100%', padding: '14px 16px', borderRadius: 12,
+    border: '1.5px solid #E8E8E8', fontSize: 15, fontFamily: 'inherit',
+    outline: 'none', background: '#FAFAFA', color: '#1A1A1A',
+    marginBottom: 12, boxSizing: 'border-box'
+  };
+  const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
+
+  // ── ÉCRAN RECHERCHE ──────────────────────────────────────────────────────
   if (searching) {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
         <style>{`
           @keyframes ping { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.5); opacity: 0; } }
           @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-          @keyframes fadein { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         `}</style>
-
-        {/* Carte simulée */}
-        <div style={{ height: 340, background: 'linear-gradient(160deg, #E8F5F0 0%, #D0EDE4 100%)', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ height: 340, background: 'linear-gradient(160deg, #E8F5F0, #D0EDE4)', position: 'relative', overflow: 'hidden' }}>
           {[60,120,180,240,300].map(y => <div key={y} style={{ position: 'absolute', left: 0, right: 0, top: y, height: 1, background: 'rgba(29,158,117,0.12)' }} />)}
           {[60,120,180,240,300,360].map(x => <div key={x} style={{ position: 'absolute', top: 0, bottom: 0, left: x, width: 1, background: 'rgba(29,158,117,0.12)' }} />)}
           {[{ x: 80, y: 80 }, { x: 200, y: 120 }, { x: 300, y: 60 }].map((pos, i) => (
@@ -133,8 +170,7 @@ export default function BookingFlow() {
             {form.address.split(',')[0]} 🗺️
           </div>
         </div>
-
-        <div style={{ flex: 1, padding: '24px 24px', background: '#fff' }}>
+        <div style={{ flex: 1, padding: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
             <div style={{ display: 'flex', gap: 5 }}>
               {dots.map((active, i) => (
@@ -145,12 +181,7 @@ export default function BookingFlow() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {SEARCH_STEPS.map((s, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                borderRadius: 12, background: i === searchStep ? '#E1F5EE' : i < searchStep ? '#F8FAF9' : '#FAFAFA',
-                border: i === searchStep ? '1.5px solid #1D9E75' : '1.5px solid transparent',
-                opacity: i > searchStep ? 0.4 : 1, transition: 'all 0.3s'
-              }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 12, background: i === searchStep ? '#E1F5EE' : i < searchStep ? '#F8FAF9' : '#FAFAFA', border: i === searchStep ? '1.5px solid #1D9E75' : '1.5px solid transparent', opacity: i > searchStep ? 0.4 : 1, transition: 'all 0.3s' }}>
                 <span style={{ fontSize: 18 }}>{i < searchStep ? '✅' : i === searchStep ? '⏳' : '○'}</span>
                 <span style={{ fontSize: 14, fontWeight: i === searchStep ? 600 : 400, color: i === searchStep ? '#0F6E56' : '#555' }}>{s}</span>
               </div>
@@ -161,7 +192,7 @@ export default function BookingFlow() {
     );
   }
 
-  // ÉCRAN MATCH TROUVÉ
+  // ── ÉCRAN MATCH ───────────────────────────────────────────────────────────
   if (matched && walker) {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto' }}>
@@ -197,11 +228,12 @@ export default function BookingFlow() {
               </div>
             </div>
             <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
-            <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}</div>
-            <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📍 {form.address}</div>
             <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
               {mode === 'now' ? '⚡ Le plus tôt possible' : `📅 ${form.date} à ${form.time}`}
             </div>
+            {!selectedService.fixedPrice && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}</div>}
+            <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📍 {form.address}</div>
+            {form.instructions && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📝 {form.instructions}</div>}
             <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 14, color: '#555' }}>Total estimé</span>
@@ -221,18 +253,10 @@ export default function BookingFlow() {
     );
   }
 
-  const inputStyle = {
-    width: '100%', padding: '14px 16px', borderRadius: 12,
-    border: '1.5px solid #E8E8E8', fontSize: 15, fontFamily: 'inherit',
-    outline: 'none', background: '#FAFAFA', color: '#1A1A1A',
-    marginBottom: 12, boxSizing: 'border-box'
-  };
-  const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
-
+  // ── FORMULAIRE ────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
 
-      {/* HEADER */}
       <div style={{ background: 'linear-gradient(160deg, #0F6E56 0%, #1D9E75 100%)', padding: '48px 24px 32px' }}>
         <button onClick={() => step > 1 ? setStep(s => s - 1) : navigate('/')}
           style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>
@@ -255,7 +279,6 @@ export default function BookingFlow() {
         {/* ÉTAPE 1 — ADRESSE */}
         {step === 1 && (
           <div>
-            {/* TOGGLE MAINTENANT / PLANIFIER */}
             <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 20 }}>
               <button onClick={() => setMode('now')}
                 style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: mode === 'now' ? '#fff' : 'transparent', color: mode === 'now' ? '#1D9E75' : '#888', boxShadow: mode === 'now' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>
@@ -267,9 +290,20 @@ export default function BookingFlow() {
               </button>
             </div>
 
-            <label style={labelStyle}>Adresse de prise en charge</label>
-            <input style={inputStyle} placeholder="12 rue de la Paix, Paris 75001"
-              value={form.address} onChange={e => update('address', e.target.value)} />
+            {/* BOUTON GÉOLOCALISATION */}
+            <button onClick={handleLocate} disabled={locating}
+              style={{ width: '100%', padding: '12px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
+              {locating ? '📡 Localisation en cours...' : '📍 Utiliser ma position actuelle'}
+            </button>
+
+            <label style={labelStyle}>Ou entrez votre adresse</label>
+            <input
+              ref={addressRef}
+              style={inputStyle}
+              placeholder="12 rue de la Paix, Paris 75001"
+              value={form.address}
+              onChange={e => update('address', e.target.value)}
+            />
 
             {mode === 'later' && (
               <>
@@ -318,7 +352,6 @@ export default function BookingFlow() {
               ))}
             </div>
 
-            {/* DURÉE */}
             {selectedService && !selectedService.fixedPrice && (
               <>
                 <label style={labelStyle}>⏱️ Durée</label>
@@ -355,9 +388,7 @@ export default function BookingFlow() {
               <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
                 {mode === 'now' ? '⚡ Le plus tôt possible' : `📅 ${form.date} à ${form.time}`}
               </div>
-              {!selectedService.fixedPrice && (
-                <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}</div>
-              )}
+              {!selectedService.fixedPrice && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}</div>}
               <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📍 {form.address}</div>
               {form.instructions && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📝 {form.instructions}</div>}
               <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
@@ -372,14 +403,12 @@ export default function BookingFlow() {
           </div>
         )}
 
-        {/* ERREUR */}
         {error && (
           <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>
             ⚠️ {error}
           </div>
         )}
 
-        {/* BOUTON */}
         <button onClick={step < 3 ? nextStep : confirm}
           style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>
           {step === 1 ? 'Choisir un service →' : step === 2 ? 'Voir le récapitulatif →' : mode === 'now' ? '⚡ Trouver un promeneur maintenant' : '🐾 Confirmer la balade'}

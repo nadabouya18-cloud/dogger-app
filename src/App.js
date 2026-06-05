@@ -6,6 +6,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import BookingFlow from './pages/BookingFlow';
 import WalkerHome from './pages/WalkerHome';
+import AddDog from './pages/AddDog';
 import { supabase } from './supabase';
 
 function ProtectedRoute({ children }) {
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/book" element={<ProtectedRoute><BookingFlow /></ProtectedRoute>} />
         <Route path="/walker" element={<WalkerHome />} />
+        <Route path="/add-dog" element={<ProtectedRoute><AddDog /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>

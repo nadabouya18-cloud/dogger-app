@@ -258,7 +258,7 @@ export default function BookingFlow() {
               <span style={{ fontSize: 18, fontWeight: 700, color: '#1D9E75' }}>{price}€</span>
             </div>
           </div>
-          <button onClick={() => navigate('/dashboard')}
+          <button onClick={() => navigate('/dashboard#live')}; setTimeout(() => setTab('live'), 100); }}
             style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 12 }}>
             🗺️ Suivre la balade en direct
           </button>

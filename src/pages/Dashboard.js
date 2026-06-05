@@ -41,10 +41,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     const duration = localStorage.getItem('dogger_walk_active');
-    if (duration) {
+    const startTime = localStorage.getItem('dogger_walk_start');
+    if (duration && startTime) {
       setActiveWalk(true);
       setWalkDuration(parseInt(duration));
+      // Calculer le temps déjà écoulé
+      const elapsed = Math.floor((Date.now() - parseInt(startTime)) / 1000);
+      setWalkTime(elapsed);
     }
+
     // Récupérer les coordonnées sauvegardées
     const coords = localStorage.getItem('dogger_user_coords');
     if (coords) setUserCoords(JSON.parse(coords));

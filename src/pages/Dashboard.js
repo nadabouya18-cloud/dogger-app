@@ -21,10 +21,18 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [tab, setTab] = useState(location.hash === '#live' ? 'live' : 'home');
-  const [activeWalk, setActiveWalk] = useState(true);
-  const [walkStep] = useState(2);
-  const [walkTime, setWalkTime] = useState(0);
-  const [walkDuration] = useState(30); // durée en minutes commandée
+const [activeWalk, setActiveWalk] = useState(false);
+const [walkStep] = useState(2);
+const [walkTime, setWalkTime] = useState(0);
+const [walkDuration, setWalkDuration] = useState(30);
+
+useEffect(() => {
+  const duration = localStorage.getItem('dogger_walk_active');
+  if (duration) {
+    setActiveWalk(true);
+    setWalkDuration(parseInt(duration));
+  }
+}, []);
   const [selectedDog, setSelectedDog] = useState(null);
   const [profile, setProfile] = useState(null);
   const [dogs, setDogs] = useState([]);

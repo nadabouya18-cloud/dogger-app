@@ -9,12 +9,9 @@ const SERVICES = [
 ];
 
 const DURATIONS = [
-  { id: 15,  label: '15 min' },
-  { id: 30,  label: '30 min' },
-  { id: 45,  label: '45 min' },
-  { id: 60,  label: '1h' },
-  { id: 90,  label: '1h30' },
-  { id: 120, label: '2h' },
+  { id: 15, label: '15 min' }, { id: 30, label: '30 min' },
+  { id: 45, label: '45 min' }, { id: 60, label: '1h' },
+  { id: 90, label: '1h30' },   { id: 120, label: '2h' },
 ];
 
 const TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
@@ -57,6 +54,9 @@ export default function BookingFlow() {
   const [locating, setLocating] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  // Phases Uber : 'incoming' | 'arriving' | 'here' | 'walking'
+  const [walkerPhase, setWalkerPhase] = useState('incoming');
+  const [etaSeconds, setEtaSeconds] = useState(480); // 8 min
   const addressRef = useRef(null);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
@@ -67,8 +67,7 @@ export default function BookingFlow() {
   useEffect(() => {
     if (step !== 1 || !window.google) return;
     const autocomplete = new window.google.maps.places.Autocomplete(
-      addressRef.current,
-      { types: ['address'], componentRestrictions: { country: 'fr' } }
+      addressRef.current, { types: ['address'], componentRestrictions: { country: 'fr' } }
     );
     autocomplete.addListener('place_changed', () => {
       const place = autocomplete.getPlace();
@@ -84,24 +83,19 @@ export default function BookingFlow() {
       try {
         const { latitude: lat, longitude: lng } = pos.coords;
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=fr`,
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
           { headers: { 'Accept-Language': 'fr' } }
         );
         const data = await res.json();
         if (data.address) {
-          const addr = data.address;
-          const parts = [addr.house_number, addr.road, addr.postcode, addr.city || addr.town || addr.village].filter(Boolean);
+          const a = data.address;
+          const parts = [a.house_number, a.road, a.postcode, a.city || a.town || a.village].filter(Boolean);
           update('address', parts.join(', ') || data.display_name);
         }
-      } catch (e) {
-        setError('Impossible de récupérer votre adresse');
-      } finally {
-        setLocating(false);
-      }
-    }, () => {
-      setError('Permission refusée — entrez votre adresse manuellement');
-      setLocating(false);
-    }, { timeout: 10000, enableHighAccuracy: true });
+      } catch (e) { setError('Impossible de récupérer votre adresse'); }
+      finally { setLocating(false); }
+    }, () => { setError('Permission refusée'); setLocating(false); },
+    { timeout: 10000, enableHighAccuracy: true });
   };
 
   // Animation recherche
@@ -109,12 +103,13 @@ export default function BookingFlow() {
     if (!searching) return;
     let i = 0;
     const interval = setInterval(() => {
-      setSearchStep(i);
-      i++;
+      setSearchStep(i); i++;
       if (i >= SEARCH_STEPS.length) {
         clearInterval(interval);
         setTimeout(() => {
-          setWalker({ name: 'Thomas M.', rating: 4.9, walks: 127, dist: '300m', eta: '8 min', emoji: '🧑' });
+          setWalker({ name: 'Thomas M.', rating: 4.9, walks: 127, dist: '300m', eta: 8, emoji: '🧑' });
+          setWalkerPhase('incoming');
+          setEtaSeconds(480);
           setMatched(true);
           setSearching(false);
         }, 800);
@@ -126,16 +121,26 @@ export default function BookingFlow() {
   useEffect(() => {
     if (!searching) return;
     const interval = setInterval(() => {
-      setDots(d => {
-        const next = [...d];
-        const idx = next.indexOf(false);
-        if (idx === -1) return [false, false, false];
-        next[idx] = true;
-        return next;
-      });
+      setDots(d => { const n = [...d]; const i = n.indexOf(false); if (i === -1) return [false,false,false]; n[i]=true; return n; });
     }, 300);
     return () => clearInterval(interval);
   }, [searching]);
+
+  // Countdown ETA Thomas
+  useEffect(() => {
+    if (!matched || walkerPhase !== 'incoming') return;
+    const interval = setInterval(() => {
+      setEtaSeconds(s => {
+        if (s <= 120 && walkerPhase === 'incoming') setWalkerPhase('arriving');
+        if (s <= 0) { setWalkerPhase('here'); clearInterval(interval); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [matched, walkerPhase]);
+
+  // Simulate position Thomas sur carte (0→100%)
+  const walkerProgress = Math.max(0, Math.min(100, 100 - (etaSeconds / 480) * 100));
 
   const validateStep1 = () => {
     if (!form.address) return 'Entrez votre adresse';
@@ -147,8 +152,7 @@ export default function BookingFlow() {
   const nextStep = () => {
     const err = step === 1 ? validateStep1() : null;
     if (err) { setError(err); return; }
-    setError('');
-    setStep(s => s + 1);
+    setError(''); setStep(s => s + 1);
   };
 
   const confirm = () => {
@@ -161,7 +165,17 @@ export default function BookingFlow() {
   const handleCancelConfirm = () => {
     localStorage.removeItem('dogger_walk_active');
     localStorage.removeItem('dogger_walk_service');
-    navigate('/');
+    navigate('/dashboard');
+  };
+
+  const startWalk = () => {
+    setWalkerPhase('walking');
+    navigate('/dashboard#live');
+  };
+
+  const formatEta = (s) => {
+    const m = Math.floor(s / 60);
+    return m > 0 ? `${m} min` : 'quelques secondes';
   };
 
   const inputStyle = {
@@ -183,17 +197,17 @@ export default function BookingFlow() {
         <div style={{ height: 340, background: 'linear-gradient(160deg, #E8F5F0, #D0EDE4)', position: 'relative', overflow: 'hidden' }}>
           {[60,120,180,240,300].map(y => <div key={y} style={{ position: 'absolute', left: 0, right: 0, top: y, height: 1, background: 'rgba(29,158,117,0.12)' }} />)}
           {[60,120,180,240,300,360].map(x => <div key={x} style={{ position: 'absolute', top: 0, bottom: 0, left: x, width: 1, background: 'rgba(29,158,117,0.12)' }} />)}
-          {[{ x: 80, y: 80 }, { x: 200, y: 120 }, { x: 300, y: 60 }].map((pos, i) => (
-            <div key={i} style={{ position: 'absolute', left: pos.x, top: pos.y, animation: `float ${1.5 + i * 0.3}s ease-in-out infinite` }}>
-              <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, boxShadow: '0 3px 10px rgba(29,158,117,0.4)' }}>🚶</div>
+          {[{x:80,y:80},{x:200,y:120},{x:300,y:60}].map((pos,i) => (
+            <div key={i} style={{ position: 'absolute', left: pos.x, top: pos.y, animation: `float ${1.5+i*0.3}s ease-in-out infinite` }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🚶</div>
             </div>
           ))}
           <div style={{ position: 'absolute', left: '50%', top: '55%', transform: 'translate(-50%,-50%)' }}>
             <div style={{ position: 'absolute', width: 80, height: 80, borderRadius: '50%', border: '2px solid rgba(29,158,117,0.3)', top: -40, left: -40, animation: 'ping 1.2s ease-out infinite' }} />
             <div style={{ position: 'absolute', width: 120, height: 120, borderRadius: '50%', border: '2px solid rgba(29,158,117,0.2)', top: -60, left: -60, animation: 'ping 1.2s ease-out infinite 0.4s' }} />
-            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, boxShadow: '0 4px 16px rgba(29,158,117,0.5)', position: 'relative', zIndex: 2 }}>📍</div>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, position: 'relative', zIndex: 2 }}>📍</div>
           </div>
-          <div style={{ position: 'absolute', top: 16, left: 16, background: 'white', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 600, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+          <div style={{ position: 'absolute', top: 16, left: 16, background: 'white', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 600, color: '#1D9E75' }}>
             {form.address.split(',')[0]} 🗺️
           </div>
         </div>
@@ -208,7 +222,7 @@ export default function BookingFlow() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {SEARCH_STEPS.map((s, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 12, background: i === searchStep ? '#E1F5EE' : i < searchStep ? '#F8FAF9' : '#FAFAFA', border: i === searchStep ? '1.5px solid #1D9E75' : '1.5px solid transparent', opacity: i > searchStep ? 0.4 : 1, transition: 'all 0.3s' }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 12, background: i === searchStep ? '#E1F5EE' : '#FAFAFA', border: i === searchStep ? '1.5px solid #1D9E75' : '1.5px solid transparent', opacity: i > searchStep ? 0.4 : 1, transition: 'all 0.3s' }}>
                 <span style={{ fontSize: 18 }}>{i < searchStep ? '✅' : i === searchStep ? '⏳' : '○'}</span>
                 <span style={{ fontSize: 14, fontWeight: i === searchStep ? 600 : 400, color: i === searchStep ? '#0F6E56' : '#555' }}>{s}</span>
               </div>
@@ -219,71 +233,107 @@ export default function BookingFlow() {
     );
   }
 
-  // ── ÉCRAN MATCH ───────────────────────────────────────────────────────────
+  // ── ÉCRAN THOMAS EN ROUTE (phases Uber) ──────────────────────────────────
   if (matched && walker) {
+    const isArriving = walkerPhase === 'arriving';
+    const isHere = walkerPhase === 'here';
+
     return (
-      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto' }}>
-        <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 24px 32px', textAlign: 'center' }}>
-          <div style={{ fontSize: 24, marginBottom: 8 }}>🎉</div>
-          <h2 style={{ fontSize: 24, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
-            {mode === 'now' ? 'Promeneur trouvé !' : 'Balade planifiée !'}
-          </h2>
-          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)' }}>Votre chien va adorer !</p>
-        </div>
-        <div style={{ padding: '24px 20px' }}>
-          {mode === 'now' && (
-            <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '20px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
-              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, flexShrink: 0 }}>{walker.emoji}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 17, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>{walker.name}</div>
-                <div style={{ fontSize: 13, color: '#1D9E75', marginBottom: 2 }}>⭐ {walker.rating} · {walker.walks} balades</div>
-                <div style={{ fontSize: 12, color: '#888' }}>📍 À {walker.dist} · ETA {walker.eta}</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#1D9E75' }}>{walker.eta}</div>
-                <div style={{ fontSize: 11, color: '#888' }}>arrivée</div>
-              </div>
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
+        <style>{`
+          @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+          @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+          @keyframes slidein { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        `}</style>
+
+        {/* CARTE avec Thomas qui avance */}
+        <div style={{ height: 320, background: 'linear-gradient(160deg, #E8F5F0, #D0EDE4)', position: 'relative', overflow: 'hidden' }}>
+          {[60,120,180,240,300].map(y => <div key={y} style={{ position: 'absolute', left: 0, right: 0, top: y, height: 1, background: 'rgba(29,158,117,0.12)' }} />)}
+          {[60,120,180,240,300,360].map(x => <div key={x} style={{ position: 'absolute', top: 0, bottom: 0, left: x, width: 1, background: 'rgba(29,158,117,0.12)' }} />)}
+
+          {/* Ligne de trajet */}
+          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+            <line x1="60" y1="240" x2="220" y2="160" stroke="#1D9E75" strokeWidth="3" strokeDasharray="8 4" opacity="0.4" />
+          </svg>
+
+          {/* Thomas (position dynamique) */}
+          <div style={{
+            position: 'absolute',
+            left: `${60 + walkerProgress * 1.6}px`,
+            top: `${240 - walkerProgress * 0.8}px`,
+            transition: 'left 1s linear, top 1s linear',
+            animation: 'bounce 1.5s ease-in-out infinite'
+          }}>
+            <div style={{ width: 40, height: 40, borderRadius: '50%', background: isArriving ? '#F59E0B' : '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, boxShadow: `0 4px 12px ${isArriving ? 'rgba(245,158,11,0.5)' : 'rgba(29,158,117,0.5)'}` }}>
+              🚶
             </div>
-          )}
-          <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '20px', marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 12 }}>DÉTAILS</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <span style={{ fontSize: 24 }}>{selectedService.icon}</span>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>{selectedService.name}</div>
-                <div style={{ fontSize: 12, color: '#888' }}>{selectedService.desc}</div>
-              </div>
-            </div>
-            <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
-            <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
-              {mode === 'now' ? '⚡ Le plus tôt possible' : `📅 ${form.date} à ${form.time}`}
-            </div>
-            {!selectedService.fixedPrice && (
-              <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
-                ⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}
-              </div>
-            )}
-            <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📍 {form.address}</div>
-            {form.instructions && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📝 {form.instructions}</div>}
-            <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 14, color: '#555' }}>Total estimé</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color: '#1D9E75' }}>{price}€</span>
+            <div style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', background: isArriving ? '#F59E0B' : '#1D9E75', color: '#fff', borderRadius: 10, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              {isHere ? 'Arrivé !' : formatEta(etaSeconds)}
             </div>
           </div>
 
-          <button onClick={() => navigate('/dashboard#live')}
-            style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 10 }}>
-            🗺️ Suivre la balade en direct
-          </button>
-          <button onClick={() => setShowCancel(true)}
-            style={{ width: '100%', padding: 14, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>
-            ❌ Annuler la balade
-          </button>
-          <button onClick={() => navigate('/')}
-            style={{ width: '100%', padding: 14, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
-            Retour à l'accueil
-          </button>
+          {/* Destination (toi) */}
+          <div style={{ position: 'absolute', left: 200, top: 140, animation: 'pulse 2s infinite' }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#fff', border: '3px solid #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🏠</div>
+          </div>
+
+          {/* Badge statut */}
+          <div style={{
+            position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+            background: isHere ? '#1D9E75' : isArriving ? '#F59E0B' : '#fff',
+            color: isHere || isArriving ? '#fff' : '#1D9E75',
+            borderRadius: 20, padding: '8px 20px', fontSize: 13, fontWeight: 700,
+            boxShadow: '0 2px 12px rgba(0,0,0,0.15)', whiteSpace: 'nowrap',
+            animation: isArriving || isHere ? 'pulse 1s infinite' : 'none'
+          }}>
+            {isHere ? '🎉 Thomas est arrivé !' : isArriving ? '⚠️ Préparez-vous — 2 min !' : `🚶 Thomas arrive dans ${formatEta(etaSeconds)}`}
+          </div>
+        </div>
+
+        {/* PANEL BAS */}
+        <div style={{ flex: 1, padding: '20px', background: '#fff' }}>
+
+          {/* Info Thomas */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#F8FAF9', borderRadius: 16, padding: '16px', marginBottom: 16 }}>
+            <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>{walker.emoji}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>{walker.name}</div>
+              <div style={{ fontSize: 13, color: '#1D9E75' }}>⭐ {walker.rating} · {walker.walks} balades</div>
+            </div>
+            <div style={{ textAlign: 'center', background: isHere ? '#E1F5EE' : isArriving ? '#FFF8E1' : '#F0F0F0', borderRadius: 12, padding: '8px 14px' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: isHere ? '#1D9E75' : isArriving ? '#F59E0B' : '#555' }}>
+                {isHere ? '✅' : formatEta(etaSeconds)}
+              </div>
+              <div style={{ fontSize: 11, color: '#888' }}>{isHere ? 'Arrivé' : 'restant'}</div>
+            </div>
+          </div>
+
+          {/* Détails commande */}
+          <div style={{ background: '#F8FAF9', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13, color: '#555' }}>
+            <div style={{ marginBottom: 4 }}>📍 {form.address}</div>
+            <div style={{ marginBottom: 4 }}>🐾 {selectedService.name} · {DURATIONS.find(d => d.id === form.duration)?.label}</div>
+            <div style={{ fontWeight: 700, color: '#1D9E75' }}>💶 {price}€</div>
+          </div>
+
+          {/* BOUTON PRINCIPAL selon la phase */}
+          {isHere ? (
+            <button onClick={startWalk}
+              style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 10, boxShadow: '0 4px 16px rgba(29,158,117,0.4)', animation: 'slidein 0.3s ease' }}>
+              🐾 Confirmer le départ de la balade
+            </button>
+          ) : (
+            <div style={{ background: isArriving ? '#FFF8E1' : '#E1F5EE', borderRadius: 12, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: isArriving ? '#F59E0B' : '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
+              {isArriving ? '⚠️ Préparez votre chien — Thomas arrive !' : '🚶 Thomas est en route vers vous...'}
+            </div>
+          )}
+
+          {/* Annuler */}
+          {!isHere && (
+            <button onClick={() => setShowCancel(true)}
+              style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+              ❌ Annuler la balade
+            </button>
+          )}
         </div>
 
         {/* MODAL ANNULATION */}
@@ -318,54 +368,44 @@ export default function BookingFlow() {
   // ── FORMULAIRE ────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
-
       <div style={{ background: 'linear-gradient(160deg, #0F6E56 0%, #1D9E75 100%)', padding: '48px 24px 32px' }}>
         <button onClick={() => step > 1 ? setStep(s => s - 1) : navigate('/')}
           style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>
           ← Retour
         </button>
-        <div style={{ fontSize: 28, marginBottom: 8 }}>
-          {step === 1 ? '📍' : step === 2 ? '🐾' : '✅'}
-        </div>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>{step === 1 ? '📍' : step === 2 ? '🐾' : '✅'}</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', marginBottom: 6 }}>
           {step === 1 ? 'Où est votre chien ?' : step === 2 ? 'Quel service ?' : 'Récapitulatif'}
         </h1>
         <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>Étape {step} sur 3</p>
         <div style={{ marginTop: 16, background: 'rgba(255,255,255,0.2)', borderRadius: 10, height: 4 }}>
-          <div style={{ width: `${(step / 3) * 100}%`, background: '#fff', borderRadius: 10, height: 4, transition: 'width 0.3s' }} />
+          <div style={{ width: `${(step/3)*100}%`, background: '#fff', borderRadius: 10, height: 4, transition: 'width 0.3s' }} />
         </div>
       </div>
 
       <div style={{ padding: '24px 20px' }}>
-
         {step === 1 && (
           <div>
             <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 20 }}>
-              <button onClick={() => setMode('now')}
-                style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: mode === 'now' ? '#fff' : 'transparent', color: mode === 'now' ? '#1D9E75' : '#888', boxShadow: mode === 'now' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>
-                ⚡ Le plus tôt possible
-              </button>
-              <button onClick={() => setMode('later')}
-                style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: mode === 'later' ? '#fff' : 'transparent', color: mode === 'later' ? '#1D9E75' : '#888', boxShadow: mode === 'later' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>
-                📅 Planifier
-              </button>
+              {[{id:'now',label:'⚡ Le plus tôt possible'},{id:'later',label:'📅 Planifier'}].map(m => (
+                <button key={m.id} onClick={() => setMode(m.id)}
+                  style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: mode === m.id ? '#fff' : 'transparent', color: mode === m.id ? '#1D9E75' : '#888', boxShadow: mode === m.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>
+                  {m.label}
+                </button>
+              ))}
             </div>
-
             <button onClick={handleLocate} disabled={locating}
               style={{ width: '100%', padding: '12px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
               {locating ? '📡 Localisation en cours...' : '📍 Utiliser ma position actuelle'}
             </button>
-
             <label style={labelStyle}>Ou entrez votre adresse</label>
             <input ref={addressRef} style={inputStyle} placeholder="12 rue de la Paix, Paris 75001"
               value={form.address} onChange={e => update('address', e.target.value)} />
-
             {mode === 'later' && (
               <>
                 <label style={labelStyle}>Date</label>
                 <input style={inputStyle} type="date" value={form.date}
-                  min={new Date().toISOString().split('T')[0]}
-                  onChange={e => update('date', e.target.value)} />
+                  min={new Date().toISOString().split('T')[0]} onChange={e => update('date', e.target.value)} />
                 <label style={labelStyle}>Heure</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
                   {TIMES.map(t => (
@@ -377,7 +417,6 @@ export default function BookingFlow() {
                 </div>
               </>
             )}
-
             <label style={labelStyle}>Instructions spéciales (optionnel)</label>
             <textarea style={{ ...inputStyle, height: 80, resize: 'none' }}
               placeholder="Code porte, comportement particulier de votre chien..."
@@ -405,7 +444,6 @@ export default function BookingFlow() {
                 </div>
               ))}
             </div>
-
             {selectedService && !selectedService.fixedPrice && (
               <>
                 <label style={labelStyle}>⏱️ Durée</label>
@@ -441,11 +479,7 @@ export default function BookingFlow() {
               <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
                 {mode === 'now' ? '⚡ Le plus tôt possible' : `📅 ${form.date} à ${form.time}`}
               </div>
-              {!selectedService.fixedPrice && (
-                <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
-                  ⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}
-                </div>
-              )}
+              {!selectedService.fixedPrice && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}</div>}
               <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📍 {form.address}</div>
               {form.instructions && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📝 {form.instructions}</div>}
               <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
@@ -470,7 +504,6 @@ export default function BookingFlow() {
           style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>
           {step === 1 ? 'Choisir un service →' : step === 2 ? 'Voir le récapitulatif →' : mode === 'now' ? '⚡ Trouver un promeneur maintenant' : '🐾 Confirmer la balade'}
         </button>
-
       </div>
     </div>
   );

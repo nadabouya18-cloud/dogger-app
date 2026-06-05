@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 
@@ -27,6 +27,13 @@ export default function Dashboard() {
   const [profile, setProfile] = useState(null);
   const [dogs, setDogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [userCoords, setUserCoords] = useState(null);
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const walkerMarkerRef = useRef(null);
+  const routePathRef = useRef([]);
+  const routeIndexRef = useRef(0);
+  const walkTimerRef = useRef(null);
 
   useEffect(() => {
     if (location.hash === '#live') setTab('live');
@@ -38,6 +45,9 @@ export default function Dashboard() {
       setActiveWalk(true);
       setWalkDuration(parseInt(duration));
     }
+    // Récupérer les coordonnées sauvegardées
+    const coords = localStorage.getItem('dogger_user_coords');
+    if (coords) setUserCoords(JSON.parse(coords));
   }, []);
 
   useEffect(() => {
@@ -62,9 +72,99 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!activeWalk) return;
-    const t = setInterval(() => setWalkTime(s => s + 1), 1000);
-    return () => clearInterval(t);
+    walkTimerRef.current = setInterval(() => setWalkTime(s => s + 1), 1000);
+    return () => clearInterval(walkTimerRef.current);
   }, [activeWalk]);
+
+  // Init carte GPS live
+  const initLiveMap = useCallback(() => {
+    if (!mapRef.current || !window.google) return;
+
+    const center = userCoords || { lat: 48.8566, lng: 2.3522 }; // Paris par défaut
+
+    const map = new window.google.maps.Map(mapRef.current, {
+      center,
+      zoom: 15,
+      disableDefaultUI: true,
+      styles: [
+        { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+        { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+      ]
+    });
+    mapInstanceRef.current = map;
+
+    // Marqueur maison (toi)
+    new window.google.maps.Marker({
+      position: center,
+      map,
+      icon: {
+        url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png',
+        scaledSize: new window.google.maps.Size(40, 40),
+      },
+      title: 'Votre adresse'
+    });
+
+    // Position départ promeneur (simulé ~300m)
+    const walkerStart = {
+      lat: center.lat + 0.003,
+      lng: center.lng + 0.003
+    };
+
+    const walkerMarker = new window.google.maps.Marker({
+      position: walkerStart,
+      map,
+      icon: {
+        url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+        scaledSize: new window.google.maps.Size(40, 40),
+      },
+      title: 'Thomas M.'
+    });
+    walkerMarkerRef.current = walkerMarker;
+
+    // Trajet avec Directions API
+    const directionsService = new window.google.maps.DirectionsService();
+    const directionsRenderer = new window.google.maps.DirectionsRenderer({
+      map,
+      suppressMarkers: true,
+      polylineOptions: { strokeColor: '#1D9E75', strokeWeight: 4, strokeOpacity: 0.7 }
+    });
+
+    directionsService.route({
+      origin: walkerStart,
+      destination: center,
+      travelMode: window.google.maps.TravelMode.WALKING,
+    }, (result, status) => {
+      if (status === 'OK') {
+        directionsRenderer.setDirections(result);
+        const path = result.routes[0].overview_path;
+        routePathRef.current = path;
+
+        // Animer Thomas le long du trajet
+        let idx = 0;
+        const totalSteps = path.length;
+        const intervalMs = (walkDuration * 60 * 1000) / totalSteps;
+
+        const moveInterval = setInterval(() => {
+          idx++;
+          if (idx >= totalSteps) {
+            clearInterval(moveInterval);
+            return;
+          }
+          if (walkerMarkerRef.current) {
+            walkerMarkerRef.current.setPosition(path[idx]);
+            map.panTo(path[idx]);
+          }
+          routeIndexRef.current = idx;
+        }, Math.max(intervalMs, 2000));
+      }
+    });
+  }, [userCoords, walkDuration]);
+
+  useEffect(() => {
+    if (tab === 'live' && activeWalk && mapRef.current && !mapInstanceRef.current) {
+      setTimeout(initLiveMap, 300);
+    }
+  }, [tab, activeWalk, initLiveMap]);
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60);
@@ -153,7 +253,6 @@ export default function Dashboard() {
         {/* ACCUEIL */}
         {tab === 'home' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
-            {/* CTA Commander */}
             <div
               onClick={() => !activeWalk && navigate('/book')}
               style={{ background: activeWalk ? 'linear-gradient(135deg, #0F6E56, #0A4D3A)' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '20px', marginBottom: 16, cursor: activeWalk ? 'default' : 'pointer' }}>
@@ -171,7 +270,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Mes chiens */}
             <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>Mes chiens</h3>
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
               {dogs.length > 0 ? dogs.map(d => (
@@ -186,7 +284,7 @@ export default function Dashboard() {
               )) : (
                 <div style={{ fontSize: 14, color: '#888', padding: '10px 0' }}>Aucun chien enregistré</div>
               )}
-              <div onClick={() => navigate('/add dog')}
+              <div onClick={() => navigate('/add-dog')}
                 style={{ minWidth: 80, background: '#F8FAF9', borderRadius: 14, padding: '14px', textAlign: 'center', border: '1.5px dashed #D0D0D0', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <div style={{ fontSize: 24, color: '#CCC' }}>+</div>
                 <div style={{ fontSize: 10, color: '#AAA', marginTop: 4 }}>Ajouter</div>
@@ -200,20 +298,13 @@ export default function Dashboard() {
           <div style={{ animation: 'slidein 0.3s ease' }}>
             {activeWalk ? (
               <div>
-                {/* CARTE */}
-                <div style={{ height: 260, borderRadius: 18, marginBottom: 16, overflow: 'hidden', position: 'relative', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}>
-                  <iframe
-                    title="carte-balade"
-                    width="100%" height="260"
-                    style={{ border: 0 }}
-                    loading="lazy"
-                    allowFullScreen
-                    src={`https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_KEY}&q=Paris,France&zoom=15`}
-                  />
-                  <div style={{ position: 'absolute', top: 12, right: 12, background: '#1D9E75', borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#fff', animation: 'pulse 2s infinite' }}>
+                {/* VRAIE CARTE GPS */}
+                <div style={{ position: 'relative', marginBottom: 16 }}>
+                  <div ref={mapRef} style={{ height: 280, borderRadius: 18, overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }} />
+                  <div style={{ position: 'absolute', top: 12, right: 12, background: '#1D9E75', borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#fff', animation: 'pulse 2s infinite', zIndex: 10 }}>
                     🔴 Live
                   </div>
-                  <div style={{ position: 'absolute', top: 12, left: 12, background: '#fff', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                  <div style={{ position: 'absolute', top: 12, left: 12, background: '#fff', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', zIndex: 10 }}>
                     {formatTime(walkTime)} ⏱️
                   </div>
                 </div>
@@ -309,7 +400,7 @@ export default function Dashboard() {
               </div>
             )}
             <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '20px', textAlign: 'center', border: '1.5px dashed #D0D0D0', cursor: 'pointer' }}
-              onClick={() => navigate('/add dog')}>
+              onClick={() => navigate('/add-dog')}>
               <div style={{ fontSize: 28, marginBottom: 6 }}>➕</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#888' }}>Ajouter un chien</div>
             </div>
@@ -342,6 +433,7 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
+
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
-const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
 
+const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
 
 const HISTORY = [];
 
@@ -19,26 +19,29 @@ const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState(window.location.hash === '#live' ? 'live' : 'home');;
+  const location = useLocation();
+  const [tab, setTab] = useState(location.hash === '#live' ? 'live' : 'home');
   const [activeWalk, setActiveWalk] = useState(true);
   const [walkStep] = useState(2);
   const [walkTime, setWalkTime] = useState(0);
+  const [walkDuration] = useState(30); // durée en minutes commandée
   const [selectedDog, setSelectedDog] = useState(null);
   const [profile, setProfile] = useState(null);
   const [dogs, setDogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (location.hash === '#live') setTab('live');
+  }, [location.hash]);
+
+  useEffect(() => {
     const loadData = async () => {
       try {
-        // Attendre que la session soit chargée
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { navigate('/login'); return; }
-        
         const { data: profileData } = await supabase
           .from('profiles').select('*').eq('id', session.user.id).single();
         if (profileData) setProfile(profileData);
-        
         const { data: dogsData } = await supabase
           .from('dogs').select('*').eq('owner_id', session.user.id);
         if (dogsData) setDogs(dogsData);
@@ -61,6 +64,15 @@ export default function Dashboard() {
     const m = Math.floor(s / 60);
     const sec = s % 60;
     return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  const getRemainingTime = () => {
+    const totalSeconds = walkDuration * 60;
+    const remaining = totalSeconds - walkTime;
+    if (remaining <= 0) return 'Terminé';
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
   const displayName = profile
@@ -92,7 +104,12 @@ export default function Dashboard() {
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 2 }}>Bonjour 👋</p>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{displayName}</h1>
           </div>
-          <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>👤</div>
+          <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden' }}>
+            {profile?.photo_url
+              ? <img src={profile.photo_url} alt="profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : '👤'
+            }
+          </div>
         </div>
 
         {activeWalk && (
@@ -158,26 +175,6 @@ export default function Dashboard() {
                 <div style={{ fontSize: 11, color: '#AAA', marginTop: 4 }}>Ajouter</div>
               </div>
             </div>
-
-            {HISTORY.length > 0 && (
-              <>
-                <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>Dernière balade</h3>
-                <div style={{ background: '#fff', borderRadius: 14, padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🐕</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{HISTORY[0].dog} avec {HISTORY[0].walker}</div>
-                      <div style={{ fontSize: 12, color: '#888' }}>{HISTORY[0].date} · {HISTORY[0].duration} min</div>
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>{HISTORY[0].price}€</div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>{'⭐'.repeat(HISTORY[0].rating)}</div>
-                    <span style={{ fontSize: 12, color: '#888', background: '#E1F5EE', borderRadius: 8, padding: '3px 8px' }}>Terminé</span>
-                  </div>
-                </div>
-              </>
-            )}
           </div>
         )}
 
@@ -197,11 +194,9 @@ export default function Dashboard() {
                     allowFullScreen
                     src={`https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_KEY}&q=Paris,France&zoom=15`}
                   />
-                  {/* Badge LIVE */}
                   <div style={{ position: 'absolute', top: 12, right: 12, background: '#1D9E75', borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#fff', animation: 'pulse 2s infinite' }}>
                     🔴 Live
                   </div>
-                  {/* Timer */}
                   <div style={{ position: 'absolute', top: 12, left: 12, background: '#fff', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                     {formatTime(walkTime)} ⏱️
                   </div>
@@ -216,8 +211,8 @@ export default function Dashboard() {
                       <div style={{ fontSize: 13, color: '#1D9E75' }}>⭐ 4.9 · 127 balades</div>
                     </div>
                     <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '8px 14px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>~10 min</div>
-                      <div style={{ fontSize: 11, color: '#888' }}>retour</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>{getRemainingTime()}</div>
+                      <div style={{ fontSize: 11, color: '#888' }}>restant</div>
                     </div>
                   </div>
 
@@ -258,7 +253,6 @@ export default function Dashboard() {
           </div>
         )}
 
-
         {/* MES CHIENS */}
         {tab === 'dogs' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
@@ -280,7 +274,7 @@ export default function Dashboard() {
                 {selectedDog?.id === d.id && (
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #F0F0F0' }}>
                     <button onClick={() => navigate('/book')}
-                      style={{ width: '100%', padding: '12px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>
+                      style={{ width: '100%', padding: '12px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
                       🐾 Commander une balade pour {d.name}
                     </button>
                   </div>
@@ -304,11 +298,13 @@ export default function Dashboard() {
         {/* HISTORIQUE */}
         {tab === 'history' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>Toutes les balades</h3>
-              <span style={{ fontSize: 13, color: '#1D9E75', fontWeight: 600 }}>{HISTORY.length} balades</span>
-            </div>
-            {HISTORY.map(h => (
+            {HISTORY.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 20px' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Aucune balade passée</h3>
+                <p style={{ fontSize: 14, color: '#888' }}>Vos balades terminées apparaîtront ici.</p>
+              </div>
+            ) : HISTORY.map(h => (
               <div key={h.id} style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                   <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🐕</div>
@@ -318,12 +314,7 @@ export default function Dashboard() {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>{h.price}€</div>
-                    <div style={{ fontSize: 11, background: '#E1F5EE', color: '#0F6E56', borderRadius: 6, padding: '2px 6px', marginTop: 2 }}>{h.status}</div>
                   </div>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontSize: 14 }}>{'⭐'.repeat(h.rating)}</div>
-                  <span style={{ fontSize: 12, color: '#1D9E75', cursor: 'pointer' }}>Voir le rapport →</span>
                 </div>
               </div>
             ))}

@@ -27,6 +27,15 @@ const SEARCH_STEPS = [
   '✅ Mise en relation en cours...',
 ];
 
+const CANCEL_REASONS = [
+  "Je me suis trompé d'adresse",
+  "Je me suis trompé de durée",
+  "Le promeneur n'avance pas",
+  "Mon chien n'est plus disponible",
+  "J'ai trouvé une autre solution",
+  "Autre raison",
+];
+
 function getPrice(service, duration) {
   if (service.fixedPrice) return service.fixedPrice;
   return Math.round(service.pricePerMin * duration);
@@ -46,6 +55,8 @@ export default function BookingFlow() {
   const [walker, setWalker] = useState(null);
   const [dots, setDots] = useState([false, false, false]);
   const [locating, setLocating] = useState(false);
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const addressRef = useRef(null);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
@@ -67,10 +78,7 @@ export default function BookingFlow() {
 
   // Géolocalisation
   const handleLocate = () => {
-    if (!navigator.geolocation) {
-      setError('Géolocalisation non supportée');
-      return;
-    }
+    if (!navigator.geolocation) { setError('Géolocalisation non supportée'); return; }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
@@ -80,14 +88,9 @@ export default function BookingFlow() {
           { headers: { 'Accept-Language': 'fr' } }
         );
         const data = await res.json();
-        if (data.display_name) {
+        if (data.address) {
           const addr = data.address;
-          const parts = [
-            addr.house_number,
-            addr.road,
-            addr.postcode,
-            addr.city || addr.town || addr.village
-          ].filter(Boolean);
+          const parts = [addr.house_number, addr.road, addr.postcode, addr.city || addr.town || addr.village].filter(Boolean);
           update('address', parts.join(', ') || data.display_name);
         }
       } catch (e) {
@@ -149,11 +152,16 @@ export default function BookingFlow() {
   };
 
   const confirm = () => {
-    // Sauvegarder la durée pour le dashboard
-    localStorage.setItem('dogger_walk_duration', form.duration);
+    localStorage.setItem('dogger_walk_active', String(form.duration));
     localStorage.setItem('dogger_walk_service', selectedService.name);
     if (mode === 'now') setSearching(true);
     else setMatched(true);
+  };
+
+  const handleCancelConfirm = () => {
+    localStorage.removeItem('dogger_walk_active');
+    localStorage.removeItem('dogger_walk_service');
+    navigate('/');
   };
 
   const inputStyle = {
@@ -164,7 +172,7 @@ export default function BookingFlow() {
   };
   const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
 
-  // ÉCRAN RECHERCHE
+  // ── ÉCRAN RECHERCHE ──────────────────────────────────────────────────────
   if (searching) {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
@@ -211,7 +219,7 @@ export default function BookingFlow() {
     );
   }
 
-  // ÉCRAN MATCH
+  // ── ÉCRAN MATCH ───────────────────────────────────────────────────────────
   if (matched && walker) {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto' }}>
@@ -263,19 +271,51 @@ export default function BookingFlow() {
               <span style={{ fontSize: 18, fontWeight: 700, color: '#1D9E75' }}>{price}€</span>
             </div>
           </div>
+
           <button onClick={() => navigate('/dashboard#live')}
-            style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 12 }}>
+            style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 10 }}>
             🗺️ Suivre la balade en direct
+          </button>
+          <button onClick={() => setShowCancel(true)}
+            style={{ width: '100%', padding: 14, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>
+            ❌ Annuler la balade
           </button>
           <button onClick={() => navigate('/')}
             style={{ width: '100%', padding: 14, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
             Retour à l'accueil
           </button>
         </div>
+
+        {/* MODAL ANNULATION */}
+        {showCancel && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '28px 24px 40px', width: '100%', maxWidth: 430 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 6 }}>Annuler la balade</h3>
+              <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Pourquoi souhaitez-vous annuler ?</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                {CANCEL_REASONS.map(r => (
+                  <div key={r} onClick={() => setCancelReason(r)}
+                    style={{ padding: '14px 16px', borderRadius: 12, border: cancelReason === r ? '2px solid #E24B4A' : '1.5px solid #E8E8E8', background: cancelReason === r ? '#FFF0F0' : '#FAFAFA', cursor: 'pointer', fontSize: 14, fontWeight: cancelReason === r ? 600 : 400, color: cancelReason === r ? '#E24B4A' : '#555' }}>
+                    {r}
+                  </div>
+                ))}
+              </div>
+              <button disabled={!cancelReason} onClick={handleCancelConfirm}
+                style={{ width: '100%', padding: 16, background: cancelReason ? '#E24B4A' : '#F0F0F0', color: cancelReason ? '#fff' : '#AAA', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: cancelReason ? 'pointer' : 'default', marginBottom: 10, fontFamily: 'inherit' }}>
+                Confirmer l'annulation
+              </button>
+              <button onClick={() => { setShowCancel(false); setCancelReason(''); }}
+                style={{ width: '100%', padding: 14, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Garder ma balade
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
+  // ── FORMULAIRE ────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
 
@@ -298,7 +338,6 @@ export default function BookingFlow() {
 
       <div style={{ padding: '24px 20px' }}>
 
-        {/* ÉTAPE 1 */}
         {step === 1 && (
           <div>
             <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 20 }}>
@@ -318,13 +357,8 @@ export default function BookingFlow() {
             </button>
 
             <label style={labelStyle}>Ou entrez votre adresse</label>
-            <input
-              ref={addressRef}
-              style={inputStyle}
-              placeholder="12 rue de la Paix, Paris 75001"
-              value={form.address}
-              onChange={e => update('address', e.target.value)}
-            />
+            <input ref={addressRef} style={inputStyle} placeholder="12 rue de la Paix, Paris 75001"
+              value={form.address} onChange={e => update('address', e.target.value)} />
 
             {mode === 'later' && (
               <>
@@ -351,7 +385,6 @@ export default function BookingFlow() {
           </div>
         )}
 
-        {/* ÉTAPE 2 */}
         {step === 2 && (
           <div>
             <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Le tarif est adapté au gabarit de votre chien</p>
@@ -392,7 +425,6 @@ export default function BookingFlow() {
           </div>
         )}
 
-        {/* ÉTAPE 3 */}
         {step === 3 && (
           <div>
             <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Vérifiez votre commande avant de confirmer</p>

@@ -13,10 +13,10 @@ const COLORS = {
 };
 
 const SERVICES = [
-  { id: 'xs',     icon: '🐩', name: 'Dogger XS',   desc: 'Petits gabarits −10 kg', price: 'Dès 12€', popular: false },
-  { id: 'solo',   icon: '🐕', name: 'Dogger Solo', desc: 'Balade individuelle',     price: 'Dès 15€', popular: false },
-  { id: 'shared', icon: '🐕‍🦺', name: 'Shared',     desc: 'Balade en groupe',       price: 'Dès 8€',  popular: true  },
-  { id: 'home',   icon: '🏠', name: 'Dogger Home', desc: 'Garde à domicile',       price: 'Dès 25€', popular: false },
+  { id: 'walk',   icon: '🐕',  name: 'Balade',           desc: 'Promenade dans le quartier',   price: 'Dès 6€',  popular: false },
+  { id: 'shared', icon: '🐕‍🦺', name: 'Balade Shared',    desc: 'Balade en groupe économique',  price: 'Dès 4€',  popular: true  },
+  { id: 'parc',   icon: '🌳',  name: 'Dogger Parc',      desc: 'Session de jeu en parc canin', price: 'Dès 5€',  popular: false },
+  { id: 'home',   icon: '🏠',  name: 'Garde à domicile', desc: 'Garde chez le promeneur',      price: 'Dès 25€', popular: false },
 ];
 
 const STEPS = [
@@ -43,7 +43,7 @@ export default function Home() {
           Votre chien<br />mérite mieux
         </h1>
         <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, marginBottom: 32 }}>
-          Des promeneurs vérifiés, disponibles en 30 minutes — suivi GPS en direct.
+          Des promeneurs vérifiés, disponibles en moins de 5 minutes — suivi GPS en direct.
         </p>
         <div style={{ display: 'flex', gap: 12 }}>
           <button onClick={() => navigate('/login?redirect=book')} style={{ flex: 1, padding: '14px 20px', background: '#fff', color: '#0F6E56', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
@@ -57,7 +57,7 @@ export default function Home() {
 
       {/* STATS */}
       <div style={{ display: 'flex', background: '#fff', margin: '0 16px', marginTop: -20, borderRadius: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.08)', position: 'relative', zIndex: 10 }}>
-        {[{ num: '7M+', label: 'chiens en France' }, { num: '30 min', label: 'délai moyen' }, { num: 'GPS', label: 'suivi live' }].map((s, i) => (
+        {[{ num: '7M+', label: 'chiens en France' }, { num: '~5 min', label: 'délai de réponse' }, { num: 'GPS', label: 'suivi live' }].map((s, i) => (
           <div key={i} style={{ flex: 1, padding: '16px 8px', textAlign: 'center', borderRight: i < 2 ? '1px solid #F0F0F0' : 'none' }}>
             <span style={{ fontSize: 20, fontWeight: 700, color: '#1D9E75', display: 'block' }}>{s.num}</span>
             <span style={{ fontSize: 11, color: '#888', marginTop: 2, display: 'block' }}>{s.label}</span>

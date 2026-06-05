@@ -28,11 +28,18 @@ export default function Dashboard() {
   const [dogs, setDogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userCoords, setUserCoords] = useState(null);
+
+  // Profil edit
+  const [editMode, setEditMode] = useState(false);
+  const [editForm, setEditForm] = useState({ first_name: '', last_name: '', phone: '' });
+  const [editLoading, setEditLoading] = useState(false);
+  const [editSuccess, setEditSuccess] = useState(false);
+  const [newOwnerPhoto, setNewOwnerPhoto] = useState(null);
+
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const walkerMarkerRef = useRef(null);
   const routePathRef = useRef([]);
-  const routeIndexRef = useRef(0);
   const walkTimerRef = useRef(null);
 
   useEffect(() => {
@@ -45,12 +52,9 @@ export default function Dashboard() {
     if (duration && startTime) {
       setActiveWalk(true);
       setWalkDuration(parseInt(duration));
-      // Calculer le temps déjà écoulé
       const elapsed = Math.floor((Date.now() - parseInt(startTime)) / 1000);
       setWalkTime(elapsed);
     }
-
-    // Récupérer les coordonnées sauvegardées
     const coords = localStorage.getItem('dogger_user_coords');
     if (coords) setUserCoords(JSON.parse(coords));
   }, []);
@@ -62,7 +66,14 @@ export default function Dashboard() {
         if (!session) { navigate('/login'); return; }
         const { data: profileData } = await supabase
           .from('profiles').select('*').eq('id', session.user.id).single();
-        if (profileData) setProfile(profileData);
+        if (profileData) {
+          setProfile(profileData);
+          setEditForm({
+            first_name: profileData.first_name || '',
+            last_name: profileData.last_name || '',
+            phone: profileData.phone || '',
+          });
+        }
         const { data: dogsData } = await supabase
           .from('dogs').select('*').eq('owner_id', session.user.id);
         if (dogsData) setDogs(dogsData);
@@ -81,85 +92,56 @@ export default function Dashboard() {
     return () => clearInterval(walkTimerRef.current);
   }, [activeWalk]);
 
-  // Init carte GPS live
   const initLiveMap = useCallback(() => {
     if (!mapRef.current || !window.google) return;
-
-    const center = userCoords || { lat: 48.8566, lng: 2.3522 }; // Paris par défaut
-
+    if (mapInstanceRef.current) return;
+    const center = userCoords || { lat: 48.8566, lng: 2.3522 };
     const map = new window.google.maps.Map(mapRef.current, {
-      center,
-      zoom: 15,
-      disableDefaultUI: true,
+      center, zoom: 15, disableDefaultUI: true,
       styles: [
         { featureType: 'poi', stylers: [{ visibility: 'off' }] },
         { featureType: 'transit', stylers: [{ visibility: 'off' }] },
       ]
     });
     mapInstanceRef.current = map;
-
-    // Marqueur maison (toi)
     new window.google.maps.Marker({
-      position: center,
-      map,
-      icon: {
-        url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png',
-        scaledSize: new window.google.maps.Size(40, 40),
-      },
-      title: 'Votre adresse'
+      position: center, map,
+      icon: { url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new window.google.maps.Size(40, 40) },
     });
-
-    // Position départ promeneur (simulé ~300m)
-    const walkerStart = {
-      lat: center.lat + 0.003,
-      lng: center.lng + 0.003
-    };
-
+    let walkerStart = JSON.parse(localStorage.getItem('dogger_walker_start_coords') || 'null');
+    if (!walkerStart) {
+      walkerStart = { lat: center.lat + 0.003, lng: center.lng + 0.003 };
+      localStorage.setItem('dogger_walker_start_coords', JSON.stringify(walkerStart));
+    }
     const walkerMarker = new window.google.maps.Marker({
-      position: walkerStart,
-      map,
-      icon: {
-        url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
-        scaledSize: new window.google.maps.Size(40, 40),
-      },
+      position: walkerStart, map,
+      icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) },
       title: 'Thomas M.'
     });
     walkerMarkerRef.current = walkerMarker;
-
-    // Trajet avec Directions API
     const directionsService = new window.google.maps.DirectionsService();
     const directionsRenderer = new window.google.maps.DirectionsRenderer({
-      map,
-      suppressMarkers: true,
+      map, suppressMarkers: true,
       polylineOptions: { strokeColor: '#1D9E75', strokeWeight: 4, strokeOpacity: 0.7 }
     });
-
     directionsService.route({
-      origin: walkerStart,
-      destination: center,
+      origin: walkerStart, destination: center,
       travelMode: window.google.maps.TravelMode.WALKING,
     }, (result, status) => {
       if (status === 'OK') {
         directionsRenderer.setDirections(result);
         const path = result.routes[0].overview_path;
         routePathRef.current = path;
-
-        // Animer Thomas le long du trajet
         let idx = 0;
         const totalSteps = path.length;
         const intervalMs = (walkDuration * 60 * 1000) / totalSteps;
-
         const moveInterval = setInterval(() => {
           idx++;
-          if (idx >= totalSteps) {
-            clearInterval(moveInterval);
-            return;
-          }
+          if (idx >= totalSteps) { clearInterval(moveInterval); return; }
           if (walkerMarkerRef.current) {
             walkerMarkerRef.current.setPosition(path[idx]);
             map.panTo(path[idx]);
           }
-          routeIndexRef.current = idx;
         }, Math.max(intervalMs, 2000));
       }
     });
@@ -170,6 +152,43 @@ export default function Dashboard() {
       setTimeout(initLiveMap, 300);
     }
   }, [tab, activeWalk, initLiveMap]);
+
+  const handleSaveProfile = async () => {
+    setEditLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const updates = {
+        first_name: editForm.first_name,
+        last_name: editForm.last_name,
+        phone: editForm.phone,
+      };
+      if (newOwnerPhoto) updates.photo_url = newOwnerPhoto;
+      const { error } = await supabase.from('profiles').update(updates).eq('id', session.user.id);
+      if (!error) {
+        setProfile(p => ({ ...p, ...updates }));
+        setEditSuccess(true);
+        setEditMode(false);
+        setNewOwnerPhoto(null);
+        setTimeout(() => setEditSuccess(false), 3000);
+      }
+    } catch (e) { console.error(e); }
+    finally { setEditLoading(false); }
+  };
+
+  const handleOwnerPhotoChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setNewOwnerPhoto(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    localStorage.clear();
+    navigate('/');
+  };
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60);
@@ -191,6 +210,7 @@ export default function Dashboard() {
     : '...';
 
   const dogName = dogs[0]?.name || 'Votre chien';
+  const photoUrl = newOwnerPhoto || profile?.photo_url;
 
   if (loading) {
     return (
@@ -206,8 +226,8 @@ export default function Dashboard() {
   return (
     <div style={{ minHeight: '100vh', background: '#F8FAF9', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto', paddingBottom: 80 }}>
       <style>{`
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
-        @keyframes slidein { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.6} }
+        @keyframes slidein { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
       `}</style>
 
       {/* HEADER */}
@@ -217,9 +237,10 @@ export default function Dashboard() {
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 2 }}>Bonjour 👋</p>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{displayName}</h1>
           </div>
-          <div style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden', border: '2px solid rgba(255,255,255,0.3)' }}>
-            {profile?.photo_url
-              ? <img src={profile.photo_url} alt="profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <div onClick={() => setTab('profile')}
+            style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden', border: '2px solid rgba(255,255,255,0.4)', cursor: 'pointer' }}>
+            {photoUrl
+              ? <img src={photoUrl} alt="profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : '👤'
             }
           </div>
@@ -244,7 +265,7 @@ export default function Dashboard() {
           { id: 'home',    label: '🏠 Accueil' },
           { id: 'live',    label: '📍 En direct' },
           { id: 'dogs',    label: '🐾 Chiens' },
-          { id: 'history', label: '📋 Historique' },
+          { id: 'profile', label: '👤 Profil' },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{ flex: 1, padding: '12px 4px', border: 'none', background: 'transparent', fontSize: 11, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? '#1D9E75' : '#888', borderBottom: tab === t.id ? '2px solid #1D9E75' : '2px solid transparent', cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -258,42 +279,65 @@ export default function Dashboard() {
         {/* ACCUEIL */}
         {tab === 'home' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
-            <div
-              onClick={() => !activeWalk && navigate('/book')}
-              style={{ background: activeWalk ? 'linear-gradient(135deg, #0F6E56, #0A4D3A)' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '20px', marginBottom: 16, cursor: activeWalk ? 'default' : 'pointer' }}>
+            {/* CTA Commander */}
+            <div onClick={() => !activeWalk && navigate('/book')}
+              style={{ background: activeWalk ? 'linear-gradient(135deg, #0F6E56, #0A4D3A)' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '20px', marginBottom: 20, cursor: activeWalk ? 'default' : 'pointer' }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>🐾</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
                 {activeWalk ? 'Balade en cours' : 'Commander une balade'}
               </div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginBottom: 14 }}>
                 {activeWalk ? `${dogName} se promène avec Thomas M.` : 'Promeneurs disponibles près de vous'}
               </div>
-              <div style={{ marginTop: 14, background: '#fff', borderRadius: 10, padding: '10px 16px', display: 'inline-block' }}>
+              <div style={{ background: '#fff', borderRadius: 10, padding: '10px 16px', display: 'inline-block' }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>
                   {activeWalk ? '📍 Suivre en direct →' : '⚡ Commander maintenant →'}
                 </span>
               </div>
             </div>
 
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>Mes chiens</h3>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
+            {/* Mes chiens */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>Mes chiens</h3>
+              <button onClick={() => navigate('/add-dog')}
+                style={{ background: '#E1F5EE', border: 'none', color: '#1D9E75', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '4px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                + Ajouter
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 24, overflowX: 'auto', paddingBottom: 4 }}>
               {dogs.length > 0 ? dogs.map(d => (
-                <div key={d.id} style={{ minWidth: 100, background: '#fff', borderRadius: 14, padding: '14px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', flexShrink: 0 }}>
+                <div key={d.id} onClick={() => navigate('/book')}
+                  style={{ minWidth: 110, background: '#fff', borderRadius: 16, padding: '14px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', flexShrink: 0, cursor: 'pointer' }}>
                   {d.photo_url
-                    ? <img src={d.photo_url} alt={d.name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', marginBottom: 6, border: '2px solid #E1F5EE' }} />
-                    : <div style={{ fontSize: 32, marginBottom: 6 }}>{SIZE_ICONS[d.size] || '🐕'}</div>
+                    ? <img src={d.photo_url} alt={d.name} style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', marginBottom: 8, border: '2px solid #E1F5EE' }} />
+                    : <div style={{ fontSize: 36, marginBottom: 8 }}>{SIZE_ICONS[d.size] || '🐕'}</div>
                   }
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>{d.name}</div>
-                  <div style={{ fontSize: 10, color: '#888' }}>{d.breed}</div>
+                  <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>{d.breed}</div>
+                  <div style={{ fontSize: 10, color: '#1D9E75', marginTop: 4, fontWeight: 600 }}>Gabarit {d.size?.toUpperCase()}</div>
                 </div>
               )) : (
-                <div style={{ fontSize: 14, color: '#888', padding: '10px 0' }}>Aucun chien enregistré</div>
+                <div onClick={() => navigate('/add-dog')}
+                  style={{ minWidth: 110, background: '#F8FAF9', borderRadius: 16, padding: '20px', textAlign: 'center', border: '1.5px dashed #D0D0D0', cursor: 'pointer', flexShrink: 0 }}>
+                  <div style={{ fontSize: 28, color: '#CCC', marginBottom: 6 }}>+</div>
+                  <div style={{ fontSize: 12, color: '#AAA' }}>Ajouter un chien</div>
+                </div>
               )}
-              <div onClick={() => navigate('/add-dog')}
-                style={{ minWidth: 80, background: '#F8FAF9', borderRadius: 14, padding: '14px', textAlign: 'center', border: '1.5px dashed #D0D0D0', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <div style={{ fontSize: 24, color: '#CCC' }}>+</div>
-                <div style={{ fontSize: 10, color: '#AAA', marginTop: 4 }}>Ajouter</div>
-              </div>
+            </div>
+
+            {/* Stats rapides */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              {[
+                { label: 'Balades', value: '12', icon: '🐾' },
+                { label: 'Note moy.', value: '4.8⭐', icon: '⭐' },
+                { label: 'Dépensé', value: '143€', icon: '💶' },
+              ].map(s => (
+                <div key={s.label} style={{ background: '#fff', borderRadius: 14, padding: '14px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>{s.value}</div>
+                  <div style={{ fontSize: 10, color: '#888' }}>{s.label}</div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -303,7 +347,6 @@ export default function Dashboard() {
           <div style={{ animation: 'slidein 0.3s ease' }}>
             {activeWalk ? (
               <div>
-                {/* VRAIE CARTE GPS */}
                 <div style={{ position: 'relative', marginBottom: 16 }}>
                   <div ref={mapRef} style={{ height: 280, borderRadius: 18, overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }} />
                   <div style={{ position: 'absolute', top: 12, right: 12, background: '#1D9E75', borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#fff', animation: 'pulse 2s infinite', zIndex: 10 }}>
@@ -314,7 +357,6 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Info promeneur */}
                 <div style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
                     <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🧑</div>
@@ -327,13 +369,9 @@ export default function Dashboard() {
                       <div style={{ fontSize: 11, color: '#888' }}>restant</div>
                     </div>
                   </div>
-
-                  {/* Barre de progression */}
                   <div style={{ background: '#F0F0F0', borderRadius: 10, height: 6, marginBottom: 12 }}>
                     <div style={{ width: `${Math.min(100, (walkTime / (walkDuration * 60)) * 100)}%`, background: '#1D9E75', borderRadius: 10, height: 6, transition: 'width 1s linear' }} />
                   </div>
-
-                  {/* Étapes */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {WALK_STEPS.map((s, i) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: i > walkStep ? 0.3 : 1 }}>
@@ -346,7 +384,6 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Photos */}
                 <div style={{ background: '#fff', borderRadius: 16, padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>📸 Photos reçues</div>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -412,12 +449,111 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* HISTORIQUE */}
-        {tab === 'history' && (
-          <div style={{ animation: 'slidein 0.3s ease', textAlign: 'center', padding: '48px 20px' }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
-            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Aucune balade passée</h3>
-            <p style={{ fontSize: 14, color: '#888' }}>Vos balades terminées apparaîtront ici.</p>
+        {/* PROFIL */}
+        {tab === 'profile' && (
+          <div style={{ animation: 'slidein 0.3s ease' }}>
+
+            {editSuccess && (
+              <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
+                ✅ Profil mis à jour avec succès !
+              </div>
+            )}
+
+            {/* Photo profil */}
+            <div style={{ background: '#fff', borderRadius: 18, padding: '24px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
+              <div style={{ position: 'relative', display: 'inline-block', marginBottom: 12 }}>
+                <div style={{ width: 88, height: 88, borderRadius: '50%', background: '#E1F5EE', overflow: 'hidden', border: '3px solid #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36 }}>
+                  {photoUrl
+                    ? <img src={photoUrl} alt="profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : '👤'
+                  }
+                </div>
+                <div onClick={() => document.getElementById('profilePhotoInput').click()}
+                  style={{ position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14 }}>
+                  ✏
+                </div>
+                <input id="profilePhotoInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleOwnerPhotoChange} />
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>{displayName}</div>
+              <div style={{ fontSize: 13, color: '#888' }}>Membre Dogger 🐾</div>
+            </div>
+
+            {/* Infos modifiables */}
+            <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>Mes informations</div>
+                <button onClick={() => setEditMode(e => !e)}
+                  style={{ background: editMode ? '#FFF0F0' : '#E1F5EE', border: 'none', color: editMode ? '#E24B4A' : '#1D9E75', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '4px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {editMode ? 'Annuler' : '✏️ Modifier'}
+                </button>
+              </div>
+
+              {editMode ? (
+                <div>
+                  {[
+                    { label: 'Prénom', key: 'first_name', placeholder: 'Marie' },
+                    { label: 'Nom', key: 'last_name', placeholder: 'Dupont' },
+                    { label: 'Téléphone', key: 'phone', placeholder: '6 12 34 56 78' },
+                  ].map(f => (
+                    <div key={f.key} style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>{f.label}</div>
+                      <input
+                        style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                        value={editForm[f.key]}
+                        placeholder={f.placeholder}
+                        onChange={e => setEditForm(ef => ({ ...ef, [f.key]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                  <button onClick={handleSaveProfile} disabled={editLoading}
+                    style={{ width: '100%', padding: 14, background: editLoading ? '#A8D5C4' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: editLoading ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                    {editLoading ? 'Sauvegarde...' : '✅ Sauvegarder'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  {[
+                    { icon: '👤', label: 'Prénom', value: profile?.first_name },
+                    { icon: '👤', label: 'Nom', value: profile?.last_name },
+                    { icon: '📧', label: 'Email', value: profile?.email || '—' },
+                    { icon: '📱', label: 'Téléphone', value: profile?.phone ? `+33 ${profile.phone}` : '—' },
+                  ].map((item, idx, arr) => (
+                    <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: idx < arr.length - 1 ? '1px solid #F8F8F8' : 'none' }}>
+                      <span style={{ fontSize: 18 }}>{item.icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: '#AAA', marginBottom: 1 }}>{item.label}</div>
+                        <div style={{ fontSize: 14, color: '#1A1A1A', fontWeight: 500 }}>{item.value || '—'}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Menu profil */}
+            <div style={{ background: '#fff', borderRadius: 16, padding: '4px 16px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              {[
+                { icon: '🐾', label: 'Mes chiens', action: () => setTab('dogs') },
+                { icon: '📋', label: 'Historique des balades', action: () => {} },
+                { icon: '🔔', label: 'Notifications', action: () => {} },
+                { icon: '🔒', label: 'Sécurité & mot de passe', action: () => {} },
+                { icon: '❓', label: 'Aide & Support', action: () => {} },
+              ].map((item, idx, arr) => (
+                <div key={item.label} onClick={item.action}
+                  style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: idx < arr.length - 1 ? '1px solid #F0F0F0' : 'none', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 20 }}>{item.icon}</span>
+                  <span style={{ fontSize: 15, color: '#1A1A1A', fontWeight: 500, flex: 1 }}>{item.label}</span>
+                  <span style={{ color: '#CCC', fontSize: 18 }}>›</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Déconnexion */}
+            <button onClick={handleLogout}
+              style={{ width: '100%', padding: 14, background: '#FFF0F0', color: '#E24B4A', border: '1.5px solid #FFD0D0', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              🚪 Se déconnecter
+            </button>
+
           </div>
         )}
 
@@ -429,7 +565,7 @@ export default function Dashboard() {
           { id: 'home',    icon: '🏠', label: 'Accueil' },
           { id: 'live',    icon: '📍', label: 'En direct' },
           { id: 'dogs',    icon: '🐾', label: 'Chiens' },
-          { id: 'history', icon: '📋', label: 'Historique' },
+          { id: 'profile', icon: '👤', label: 'Profil' },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{ flex: 1, border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 0', fontFamily: 'inherit' }}>

@@ -4,8 +4,6 @@ import { supabase } from '../supabase';
 
 const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
 
-const HISTORY = [];
-
 const WALK_STEPS = [
   'Thomas est en route vers vous...',
   'Thomas est arrivé ! 🎉',
@@ -21,18 +19,10 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [tab, setTab] = useState(location.hash === '#live' ? 'live' : 'home');
-const [activeWalk, setActiveWalk] = useState(false);
-const [walkStep] = useState(2);
-const [walkTime, setWalkTime] = useState(0);
-const [walkDuration, setWalkDuration] = useState(30);
-
-useEffect(() => {
-  const duration = localStorage.getItem('dogger_walk_active');
-  if (duration) {
-    setActiveWalk(true);
-    setWalkDuration(parseInt(duration));
-  }
-}, []);
+  const [activeWalk, setActiveWalk] = useState(false);
+  const [walkStep] = useState(2);
+  const [walkTime, setWalkTime] = useState(0);
+  const [walkDuration, setWalkDuration] = useState(30);
   const [selectedDog, setSelectedDog] = useState(null);
   const [profile, setProfile] = useState(null);
   const [dogs, setDogs] = useState([]);
@@ -41,6 +31,14 @@ useEffect(() => {
   useEffect(() => {
     if (location.hash === '#live') setTab('live');
   }, [location.hash]);
+
+  useEffect(() => {
+    const duration = localStorage.getItem('dogger_walk_active');
+    if (duration) {
+      setActiveWalk(true);
+      setWalkDuration(parseInt(duration));
+    }
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -75,9 +73,9 @@ useEffect(() => {
   };
 
   const getRemainingTime = () => {
-    const totalSeconds = walkDuration * 60;
-    const remaining = totalSeconds - walkTime;
-    if (remaining <= 0) return 'Terminé';
+    const total = walkDuration * 60;
+    const remaining = total - walkTime;
+    if (remaining <= 0) return 'Terminée !';
     const m = Math.floor(remaining / 60);
     const s = remaining % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -87,9 +85,11 @@ useEffect(() => {
     ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
     : '...';
 
+  const dogName = dogs[0]?.name || 'Votre chien';
+
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff', fontFamily: 'sans-serif' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🐾</div>
           <div style={{ fontSize: 16, color: '#1D9E75', fontWeight: 600 }}>Chargement...</div>
@@ -112,7 +112,7 @@ useEffect(() => {
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 2 }}>Bonjour 👋</p>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{displayName}</h1>
           </div>
-          <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden' }}>
+          <div style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden', border: '2px solid rgba(255,255,255,0.3)' }}>
             {profile?.photo_url
               ? <img src={profile.photo_url} alt="profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : '👤'
@@ -125,8 +125,8 @@ useEffect(() => {
             onClick={() => setTab('live')}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#7FFFD4', animation: 'pulse 1s infinite', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{dogs[0]?.name || 'Votre chien'} est en balade 🐾</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>Thomas M. · {formatTime(walkTime)}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{dogName} est en balade 🐾</div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>Thomas M. · {formatTime(walkTime)} · reste {getRemainingTime()}</div>
             </div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>Suivre →</div>
           </div>
@@ -153,34 +153,43 @@ useEffect(() => {
         {/* ACCUEIL */}
         {tab === 'home' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
-            <div style={{ background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '20px', marginBottom: 16, cursor: 'pointer' }}
-              onClick={() => navigate('/book')}>
+            {/* CTA Commander */}
+            <div
+              onClick={() => !activeWalk && navigate('/book')}
+              style={{ background: activeWalk ? 'linear-gradient(135deg, #0F6E56, #0A4D3A)' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '20px', marginBottom: 16, cursor: activeWalk ? 'default' : 'pointer' }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>🐾</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Commander une balade</div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>Promeneurs disponibles près de vous</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
+                {activeWalk ? 'Balade en cours' : 'Commander une balade'}
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>
+                {activeWalk ? `${dogName} se promène avec Thomas M.` : 'Promeneurs disponibles près de vous'}
+              </div>
               <div style={{ marginTop: 14, background: '#fff', borderRadius: 10, padding: '10px 16px', display: 'inline-block' }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>⚡ Commander maintenant →</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>
+                  {activeWalk ? '📍 Suivre en direct →' : '⚡ Commander maintenant →'}
+                </span>
               </div>
             </div>
 
+            {/* Mes chiens */}
             <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>Mes chiens</h3>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
               {dogs.length > 0 ? dogs.map(d => (
-                <div key={d.id} style={{ flex: 1, background: '#fff', borderRadius: 14, padding: '14px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                <div key={d.id} style={{ minWidth: 100, background: '#fff', borderRadius: 14, padding: '14px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', flexShrink: 0 }}>
                   {d.photo_url
-                    ? <img src={d.photo_url} alt={d.name} style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', marginBottom: 6 }} />
-                    : <div style={{ fontSize: 28, marginBottom: 6 }}>{SIZE_ICONS[d.size] || '🐕'}</div>
+                    ? <img src={d.photo_url} alt={d.name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', marginBottom: 6, border: '2px solid #E1F5EE' }} />
+                    : <div style={{ fontSize: 32, marginBottom: 6 }}>{SIZE_ICONS[d.size] || '🐕'}</div>
                   }
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{d.name}</div>
-                  <div style={{ fontSize: 11, color: '#888' }}>{d.breed}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>{d.name}</div>
+                  <div style={{ fontSize: 10, color: '#888' }}>{d.breed}</div>
                 </div>
               )) : (
-                <div style={{ fontSize: 14, color: '#888' }}>Aucun chien enregistré</div>
+                <div style={{ fontSize: 14, color: '#888', padding: '10px 0' }}>Aucun chien enregistré</div>
               )}
               <div onClick={() => navigate('/register')}
-                style={{ width: 80, background: '#F8FAF9', borderRadius: 14, padding: '14px', textAlign: 'center', border: '1.5px dashed #D0D0D0', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                style={{ minWidth: 80, background: '#F8FAF9', borderRadius: 14, padding: '14px', textAlign: 'center', border: '1.5px dashed #D0D0D0', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <div style={{ fontSize: 24, color: '#CCC' }}>+</div>
-                <div style={{ fontSize: 11, color: '#AAA', marginTop: 4 }}>Ajouter</div>
+                <div style={{ fontSize: 10, color: '#AAA', marginTop: 4 }}>Ajouter</div>
               </div>
             </div>
           </div>
@@ -191,12 +200,11 @@ useEffect(() => {
           <div style={{ animation: 'slidein 0.3s ease' }}>
             {activeWalk ? (
               <div>
-                {/* VRAIE CARTE GOOGLE MAPS */}
+                {/* CARTE */}
                 <div style={{ height: 260, borderRadius: 18, marginBottom: 16, overflow: 'hidden', position: 'relative', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}>
                   <iframe
                     title="carte-balade"
-                    width="100%"
-                    height="260"
+                    width="100%" height="260"
                     style={{ border: 0 }}
                     loading="lazy"
                     allowFullScreen
@@ -222,6 +230,11 @@ useEffect(() => {
                       <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>{getRemainingTime()}</div>
                       <div style={{ fontSize: 11, color: '#888' }}>restant</div>
                     </div>
+                  </div>
+
+                  {/* Barre de progression */}
+                  <div style={{ background: '#F0F0F0', borderRadius: 10, height: 6, marginBottom: 12 }}>
+                    <div style={{ width: `${Math.min(100, (walkTime / (walkDuration * 60)) * 100)}%`, background: '#1D9E75', borderRadius: 10, height: 6, transition: 'width 1s linear' }} />
                   </div>
 
                   {/* Étapes */}
@@ -269,12 +282,12 @@ useEffect(() => {
                 style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', cursor: 'pointer', border: selectedDog?.id === d.id ? '1.5px solid #1D9E75' : '1.5px solid transparent' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   {d.photo_url
-                    ? <img src={d.photo_url} alt={d.name} style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover' }} />
+                    ? <img src={d.photo_url} alt={d.name} style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', border: '2px solid #E1F5EE' }} />
                     : <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>{SIZE_ICONS[d.size] || '🐕'}</div>
                   }
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>{d.name}</div>
-                    <div style={{ fontSize: 13, color: '#888' }}>{d.breed} · {d.gender === 'male' ? '♂️' : '♀️'}</div>
+                    <div style={{ fontSize: 13, color: '#888' }}>{d.breed} · {d.gender === 'male' ? '♂️ Mâle' : '♀️ Femelle'}</div>
                     <div style={{ fontSize: 12, color: '#1D9E75', marginTop: 2 }}>Gabarit {d.size?.toUpperCase()}</div>
                   </div>
                   <div style={{ fontSize: 20, color: '#CCC' }}>{selectedDog?.id === d.id ? '▲' : '▼'}</div>
@@ -305,27 +318,10 @@ useEffect(() => {
 
         {/* HISTORIQUE */}
         {tab === 'history' && (
-          <div style={{ animation: 'slidein 0.3s ease' }}>
-            {HISTORY.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '48px 20px' }}>
-                <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
-                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Aucune balade passée</h3>
-                <p style={{ fontSize: 14, color: '#888' }}>Vos balades terminées apparaîtront ici.</p>
-              </div>
-            ) : HISTORY.map(h => (
-              <div key={h.id} style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🐕</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{h.dog} avec {h.walker}</div>
-                    <div style={{ fontSize: 12, color: '#888' }}>{h.date} · {h.duration} min</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>{h.price}€</div>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div style={{ animation: 'slidein 0.3s ease', textAlign: 'center', padding: '48px 20px' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Aucune balade passée</h3>
+            <p style={{ fontSize: 14, color: '#888' }}>Vos balades terminées apparaîtront ici.</p>
           </div>
         )}
 
@@ -346,7 +342,6 @@ useEffect(() => {
           </button>
         ))}
       </div>
-
     </div>
   );
 }

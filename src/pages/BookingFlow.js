@@ -66,7 +66,7 @@ export default function BookingFlow() {
   }, [step]);
 
   // Géolocalisation
-    const handleLocate = () => {
+  const handleLocate = () => {
     if (!navigator.geolocation) {
       setError('Géolocalisation non supportée');
       return;
@@ -75,14 +75,12 @@ export default function BookingFlow() {
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
         const { latitude: lat, longitude: lng } = pos.coords;
-        // API gratuite sans clé — fonctionne sur Safari
         const res = await fetch(
           `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=fr`,
           { headers: { 'Accept-Language': 'fr' } }
         );
         const data = await res.json();
         if (data.display_name) {
-          // Reformater l'adresse proprement
           const addr = data.address;
           const parts = [
             addr.house_number,
@@ -144,13 +142,16 @@ export default function BookingFlow() {
   };
 
   const nextStep = () => {
-    const err = validateStep1();
-    if (step === 1 && err) { setError(err); return; }
+    const err = step === 1 ? validateStep1() : null;
+    if (err) { setError(err); return; }
     setError('');
     setStep(s => s + 1);
   };
 
   const confirm = () => {
+    // Sauvegarder la durée pour le dashboard
+    localStorage.setItem('dogger_walk_duration', form.duration);
+    localStorage.setItem('dogger_walk_service', selectedService.name);
     if (mode === 'now') setSearching(true);
     else setMatched(true);
   };
@@ -163,7 +164,7 @@ export default function BookingFlow() {
   };
   const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
 
-  // ── ÉCRAN RECHERCHE ──────────────────────────────────────────────────────
+  // ÉCRAN RECHERCHE
   if (searching) {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
@@ -210,7 +211,7 @@ export default function BookingFlow() {
     );
   }
 
-  // ── ÉCRAN MATCH ───────────────────────────────────────────────────────────
+  // ÉCRAN MATCH
   if (matched && walker) {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto' }}>
@@ -249,7 +250,11 @@ export default function BookingFlow() {
             <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
               {mode === 'now' ? '⚡ Le plus tôt possible' : `📅 ${form.date} à ${form.time}`}
             </div>
-            {!selectedService.fixedPrice && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}</div>}
+            {!selectedService.fixedPrice && (
+              <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
+                ⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}
+              </div>
+            )}
             <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📍 {form.address}</div>
             {form.instructions && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📝 {form.instructions}</div>}
             <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
@@ -258,7 +263,7 @@ export default function BookingFlow() {
               <span style={{ fontSize: 18, fontWeight: 700, color: '#1D9E75' }}>{price}€</span>
             </div>
           </div>
-          <button onClick={() => navigate('/dashboard#live')}; setTimeout(() => setTab('live'), 100); }}
+          <button onClick={() => navigate('/dashboard#live')}
             style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 12 }}>
             🗺️ Suivre la balade en direct
           </button>
@@ -271,7 +276,6 @@ export default function BookingFlow() {
     );
   }
 
-  // ── FORMULAIRE ────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
 
@@ -294,7 +298,7 @@ export default function BookingFlow() {
 
       <div style={{ padding: '24px 20px' }}>
 
-        {/* ÉTAPE 1 — ADRESSE */}
+        {/* ÉTAPE 1 */}
         {step === 1 && (
           <div>
             <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 20 }}>
@@ -308,7 +312,6 @@ export default function BookingFlow() {
               </button>
             </div>
 
-            {/* BOUTON GÉOLOCALISATION */}
             <button onClick={handleLocate} disabled={locating}
               style={{ width: '100%', padding: '12px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
               {locating ? '📡 Localisation en cours...' : '📍 Utiliser ma position actuelle'}
@@ -348,7 +351,7 @@ export default function BookingFlow() {
           </div>
         )}
 
-        {/* ÉTAPE 2 — SERVICE + DURÉE */}
+        {/* ÉTAPE 2 */}
         {step === 2 && (
           <div>
             <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Le tarif est adapté au gabarit de votre chien</p>
@@ -389,7 +392,7 @@ export default function BookingFlow() {
           </div>
         )}
 
-        {/* ÉTAPE 3 — RÉCAP */}
+        {/* ÉTAPE 3 */}
         {step === 3 && (
           <div>
             <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Vérifiez votre commande avant de confirmer</p>
@@ -406,7 +409,11 @@ export default function BookingFlow() {
               <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
                 {mode === 'now' ? '⚡ Le plus tôt possible' : `📅 ${form.date} à ${form.time}`}
               </div>
-              {!selectedService.fixedPrice && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}</div>}
+              {!selectedService.fixedPrice && (
+                <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>
+                  ⏱️ {DURATIONS.find(d => d.id === form.duration)?.label}
+                </div>
+              )}
               <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📍 {form.address}</div>
               {form.instructions && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📝 {form.instructions}</div>}
               <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />

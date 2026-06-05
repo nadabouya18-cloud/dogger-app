@@ -8,12 +8,7 @@ export const supabase = createClient(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
-      flowType: 'pkce'
-    },
-    global: {
-      headers: {
-        'X-Client-Info': 'dogger-app'
-      }
+      storage: window.localStorage
     }
   }
 );

@@ -19,7 +19,7 @@ const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState('home');
+  const [tab, setTab] = useState(window.location.hash === '#live' ? 'live' : 'home');;
   const [activeWalk, setActiveWalk] = useState(true);
   const [walkStep] = useState(2);
   const [walkTime, setWalkTime] = useState(0);

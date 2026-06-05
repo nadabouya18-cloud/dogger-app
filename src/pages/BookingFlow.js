@@ -66,23 +66,41 @@ export default function BookingFlow() {
   }, [step]);
 
   // Géolocalisation
-  const handleLocate = () => {
-    if (!navigator.geolocation) return;
+    const handleLocate = () => {
+    if (!navigator.geolocation) {
+      setError('Géolocalisation non supportée');
+      return;
+    }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
         const { latitude: lat, longitude: lng } = pos.coords;
+        // API gratuite sans clé — fonctionne sur Safari
         const res = await fetch(
-          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.REACT_APP_GOOGLE_MAPS_KEY}&language=fr`
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=fr`,
+          { headers: { 'Accept-Language': 'fr' } }
         );
         const data = await res.json();
-        if (data.results[0]) update('address', data.results[0].formatted_address);
+        if (data.display_name) {
+          // Reformater l'adresse proprement
+          const addr = data.address;
+          const parts = [
+            addr.house_number,
+            addr.road,
+            addr.postcode,
+            addr.city || addr.town || addr.village
+          ].filter(Boolean);
+          update('address', parts.join(', ') || data.display_name);
+        }
       } catch (e) {
-        console.error(e);
+        setError('Impossible de récupérer votre adresse');
       } finally {
         setLocating(false);
       }
-    }, () => setLocating(false));
+    }, () => {
+      setError('Permission refusée — entrez votre adresse manuellement');
+      setLocating(false);
+    }, { timeout: 10000, enableHighAccuracy: true });
   };
 
   // Animation recherche

@@ -46,7 +46,7 @@ export default function Home() {
           Des promeneurs vérifiés, disponibles en 30 minutes — suivi GPS en direct.
         </p>
         <div style={{ display: 'flex', gap: 12 }}>
-          <button onClick={() => navigate('/register')} style={{ flex: 1, padding: '14px 20px', background: '#fff', color: '#0F6E56', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
+          <button onClick={() => navigate('/login?redirect=book')} style={{ flex: 1, padding: '14px 20px', background: '#fff', color: '#0F6E56', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
             Commander 🐾
           </button>
           <button onClick={() => navigate('/walker')} style={{ flex: 1, padding: '14px 20px', background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1.5px solid rgba(255,255,255,0.35)', borderRadius: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>

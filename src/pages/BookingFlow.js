@@ -178,16 +178,24 @@ export default function BookingFlow() {
 
   // Animer Thomas sur le trajet
   useEffect(() => {
-    if (!matched || walkerPhase !== 'incoming' || routePath.length === 0) return;
-    const totalSteps = routePath.length;
+      useEffect(() => {
+    if (!matched) return;
+    if (walkerPhase === 'here') return;
     const interval = setInterval(() => {
-      setRouteIndex(i => {
-        const next = i + 1;
-        if (next >= totalSteps) {
-          clearInterval(interval);
+      setEtaSeconds(s => {
+        const next = s - 1;
+        if (next <= 120) setWalkerPhase('arriving');
+        if (next <= 0) {
           setWalkerPhase('here');
-          return totalSteps - 1;
+          clearInterval(interval);
+          return 0;
         }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [matched]);
+  
         // Mettre à jour position Thomas
         if (walkerMarkerRef.current) {
           walkerMarkerRef.current.setPosition(routePath[next]);
@@ -281,9 +289,12 @@ export default function BookingFlow() {
   const confirm = () => {
     localStorage.setItem('dogger_walk_active', String(form.duration));
     localStorage.setItem('dogger_walk_service', selectedService.name);
+    localStorage.setItem('dogger_walk_start', String(Date.now()));
+    if (userCoords) localStorage.setItem('dogger_user_coords', JSON.stringify(userCoords));
     if (mode === 'now') setSearching(true);
     else setMatched(true);
   };
+
 
   const handleCancelConfirm = () => {
     localStorage.removeItem('dogger_walk_active');

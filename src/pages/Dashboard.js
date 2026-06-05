@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
+const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
+
 
 const HISTORY = [];
 
@@ -181,16 +183,81 @@ export default function Dashboard() {
 
         {/* EN DIRECT */}
         {tab === 'live' && (
-          <div style={{ animation: 'slidein 0.3s ease', textAlign: 'center', padding: '48px 20px' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>😴</div>
-            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Aucune balade en cours</h3>
-            <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>Commandez une balade pour suivre votre chien en temps réel.</p>
-            <button onClick={() => navigate('/book')}
-              style={{ padding: '14px 28px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
-              Commander une balade
-            </button>
+          <div style={{ animation: 'slidein 0.3s ease' }}>
+            {activeWalk ? (
+              <div>
+                {/* VRAIE CARTE GOOGLE MAPS */}
+                <div style={{ height: 260, borderRadius: 18, marginBottom: 16, overflow: 'hidden', position: 'relative', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}>
+                  <iframe
+                    title="carte-balade"
+                    width="100%"
+                    height="260"
+                    style={{ border: 0 }}
+                    loading="lazy"
+                    allowFullScreen
+                    src={`https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_KEY}&q=Paris,France&zoom=15`}
+                  />
+                  {/* Badge LIVE */}
+                  <div style={{ position: 'absolute', top: 12, right: 12, background: '#1D9E75', borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#fff', animation: 'pulse 2s infinite' }}>
+                    🔴 Live
+                  </div>
+                  {/* Timer */}
+                  <div style={{ position: 'absolute', top: 12, left: 12, background: '#fff', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                    {formatTime(walkTime)} ⏱️
+                  </div>
+                </div>
+
+                {/* Info promeneur */}
+                <div style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🧑</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>Thomas M.</div>
+                      <div style={{ fontSize: 13, color: '#1D9E75' }}>⭐ 4.9 · 127 balades</div>
+                    </div>
+                    <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '8px 14px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>~10 min</div>
+                      <div style={{ fontSize: 11, color: '#888' }}>retour</div>
+                    </div>
+                  </div>
+
+                  {/* Étapes */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {WALK_STEPS.map((s, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: i > walkStep ? 0.3 : 1 }}>
+                        <div style={{ width: 20, height: 20, borderRadius: '50%', background: i <= walkStep ? '#1D9E75' : '#E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', flexShrink: 0, fontWeight: 700 }}>
+                          {i < walkStep ? '✓' : i === walkStep ? '●' : ''}
+                        </div>
+                        <span style={{ fontSize: 13, fontWeight: i === walkStep ? 700 : 400, color: i === walkStep ? '#1D9E75' : '#555' }}>{s}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Photos */}
+                <div style={{ background: '#fff', borderRadius: 16, padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>📸 Photos reçues</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {['🌳', '🌿', '🐕'].map((e, i) => (
+                      <div key={i} style={{ flex: 1, height: 80, background: '#E1F5EE', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>{e}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '48px 20px' }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>😴</div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Aucune balade en cours</h3>
+                <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>Commandez une balade pour suivre votre chien en temps réel.</p>
+                <button onClick={() => navigate('/book')}
+                  style={{ padding: '14px 28px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
+                  Commander une balade
+                </button>
+              </div>
+            )}
           </div>
         )}
+
 
         {/* MES CHIENS */}
         {tab === 'dogs' && (

@@ -186,7 +186,7 @@ export default function Dashboard() {
               )) : (
                 <div style={{ fontSize: 14, color: '#888', padding: '10px 0' }}>Aucun chien enregistré</div>
               )}
-              <div onClick={() => navigate('/register')}
+              <div onClick={() => navigate('/add dog')}
                 style={{ minWidth: 80, background: '#F8FAF9', borderRadius: 14, padding: '14px', textAlign: 'center', border: '1.5px dashed #D0D0D0', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <div style={{ fontSize: 24, color: '#CCC' }}>+</div>
                 <div style={{ fontSize: 10, color: '#AAA', marginTop: 4 }}>Ajouter</div>
@@ -309,7 +309,7 @@ export default function Dashboard() {
               </div>
             )}
             <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '20px', textAlign: 'center', border: '1.5px dashed #D0D0D0', cursor: 'pointer' }}
-              onClick={() => navigate('/register')}>
+              onClick={() => navigate('/add dog')}>
               <div style={{ fontSize: 28, marginBottom: 6 }}>➕</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#888' }}>Ajouter un chien</div>
             </div>

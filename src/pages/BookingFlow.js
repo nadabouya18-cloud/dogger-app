@@ -91,6 +91,7 @@ export default function BookingFlow() {
   const [homeMedInfo, setHomeMedInfo] = useState('');
   const [homeBehaviorInfo, setHomeBehaviorInfo] = useState('');
   const [homeAccessories, setHomeAccessories] = useState('');
+  const [homeEndDate, setHomeEndDate] = useState('');
   const [selectedHomeWalker, setSelectedHomeWalker] = useState(null);
   const [showWalkerDetail, setShowWalkerDetail] = useState(null);
 
@@ -985,7 +986,18 @@ export default function BookingFlow() {
                     <div>
                       <label style={{ ...labelStyle, color: '#D97706' }}>📅 Date de fin</label>
                       <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date"
-                        value={walkDate} min={walkDate || new Date().toISOString().split('T')[0]}
+                        <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date"
+                        value={homeEndDate || ''}
+                        min={walkDate || new Date().toISOString().split('T')[0]}
+                        onChange={e => {
+                          setHomeEndDate(e.target.value);
+                          if (walkDate && e.target.value) {
+                            const start = new Date(`${walkDate}T${walkTime || '08:00'}`);
+                            const end = new Date(`${e.target.value}T08:00`);
+                            const diffMinutes = Math.round((end - start) / 60000);
+                            if (diffMinutes > 0) setHomeDuration(diffMinutes);
+                          }
+                        }} /> || new Date().toISOString().split('T')[0]}
                         onChange={e => {
                           // Calculer durée automatiquement
                           if (walkDate && e.target.value) {
@@ -1036,9 +1048,24 @@ export default function BookingFlow() {
                   )}
                 </div>
               )}
-              <label style={labelStyle}>⏱️ Durée de la garde</label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {HOME_DURATIONS.map(d => (
+{walkMode === 'now' && (
+                <>
+                  <label style={labelStyle}>⏱️ Durée de la garde</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {HOME_DURATIONS.map(d => (
+                      <div key={d.id} onClick={() => setHomeDuration(d.id)}
+                        style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', borderRadius: 14, border: homeDuration === d.id ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: homeDuration === d.id ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: homeDuration === d.id ? '#D97706' : '#1A1A1A' }}>{d.label}</div>
+                          <div style={{ fontSize: 12, color: '#888' }}>{d.desc}</div>
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#F59E0B' }}>{d.price}€</div>
+                        {homeDuration === d.id && <div style={{ marginLeft: 10, width: 20, height: 20, borderRadius: '50%', background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff' }}>✓</div>}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
                   <div key={d.id} onClick={() => setHomeDuration(d.id)}
                     style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', borderRadius: 14, border: homeDuration === d.id ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: homeDuration === d.id ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
                     <div style={{ flex: 1 }}>

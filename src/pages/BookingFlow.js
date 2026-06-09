@@ -395,6 +395,17 @@ export default function BookingFlow() {
     localStorage.setItem('dogger_walk_start', String(Date.now()));
     localStorage.setItem('dogger_walk_address', addr);
     if (userCoords) localStorage.setItem('dogger_user_coords', JSON.stringify(userCoords));
+
+    // Mode planifier home → pas d'écran de recherche, confirmation directe
+    if (flowType === 'home' && homeMode === 'later') {
+      const w = selectedHomeWalker
+        ? { ...selectedHomeWalker, emoji: selectedHomeWalker.photo }
+        : { name: 'Thomas M.', rating: 4.9, walks: 127, emoji: '🧑' };
+      setWalker(w);
+      setHomeConfirmed(true);
+      return;
+    }
+
     setSearching(true);
   };
 

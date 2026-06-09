@@ -46,14 +46,20 @@ export default function Dashboard() {
     if (location.hash === '#live') setTab('live');
   }, [location.hash]);
 
-  useEffect(() => {
+useEffect(() => {
     const duration = localStorage.getItem('dogger_walk_active');
     const startTime = localStorage.getItem('dogger_walk_start');
     if (duration && startTime) {
-      setActiveWalk(true);
-      setWalkDuration(parseInt(duration));
       const elapsed = Math.floor((Date.now() - parseInt(startTime)) / 1000);
-      setWalkTime(elapsed);
+      const totalSeconds = parseInt(duration) * 60;
+      // Si la balade est terminée (temps écoulé > durée totale), on nettoie
+      if (elapsed >= totalSeconds) {
+        ['dogger_walk_active','dogger_walk_start','dogger_walk_service','dogger_walk_address','dogger_walker','dogger_walker_eta','dogger_walker_phase','dogger_walker_start_coords'].forEach(k => localStorage.removeItem(k));
+      } else {
+        setActiveWalk(true);
+        setWalkDuration(parseInt(duration));
+        setWalkTime(elapsed);
+      }
     }
     const coords = localStorage.getItem('dogger_user_coords');
     if (coords) setUserCoords(JSON.parse(coords));

@@ -280,21 +280,46 @@ export default function Dashboard() {
         {tab === 'home' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
             {/* CTA Commander */}
-            <div onClick={() => !activeWalk && navigate('/book')}
-              style={{ background: activeWalk ? 'linear-gradient(135deg, #0F6E56, #0A4D3A)' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '20px', marginBottom: 20, cursor: activeWalk ? 'default' : 'pointer' }}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>🐾</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
-                {activeWalk ? 'Balade en cours' : 'Commander une balade'}
+            {activeWalk ? (
+              <div onClick={() => setTab('live')}
+                style={{ background: 'linear-gradient(135deg, #0F6E56, #0A4D3A)', borderRadius: 18, padding: '20px', marginBottom: 20, cursor: 'pointer' }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>🐾</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Balade en cours</div>
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginBottom: 14 }}>{dogName} se promène avec Thomas M.</div>
+                <div style={{ background: '#fff', borderRadius: 10, padding: '10px 16px', display: 'inline-block' }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>📍 Suivre en direct →</span>
+                </div>
               </div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginBottom: 14 }}>
-                {activeWalk ? `${dogName} se promène avec Thomas M.` : 'Promeneurs disponibles près de vous'}
+            ) : (
+              <div style={{ marginBottom: 20 }}>
+                <p style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>Que voulez-vous commander ?</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {/* Balade */}
+                  <div onClick={() => navigate('/book')}
+                    style={{ background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '18px 14px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>🐕</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Balade</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', marginBottom: 10 }}>Promenade, parc, groupe</div>
+                    <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 8, padding: '5px 10px', display: 'inline-block' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>dès 4€ →</span>
+                    </div>
+                    <div style={{ position: 'absolute', bottom: -10, right: -10, fontSize: 48, opacity: 0.15 }}>🐕</div>
+                  </div>
+                  {/* Dogger Home */}
+                  <div onClick={() => navigate('/book')}
+                    style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)', borderRadius: 18, padding: '18px 14px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(255,255,255,0.25)', borderRadius: 8, padding: '2px 7px', fontSize: 9, fontWeight: 700, color: '#fff' }}>Nouveau</div>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>🏠</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Dogger Home</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', marginBottom: 10 }}>Garde chez le gardien</div>
+                    <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 8, padding: '5px 10px', display: 'inline-block' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>dès 35€ →</span>
+                    </div>
+                    <div style={{ position: 'absolute', bottom: -10, right: -10, fontSize: 48, opacity: 0.15 }}>🏠</div>
+                  </div>
+                </div>
               </div>
-              <div style={{ background: '#fff', borderRadius: 10, padding: '10px 16px', display: 'inline-block' }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>
-                  {activeWalk ? '📍 Suivre en direct →' : '⚡ Commander maintenant →'}
-                </span>
-              </div>
-            </div>
+            )}
 
             {/* Mes chiens */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

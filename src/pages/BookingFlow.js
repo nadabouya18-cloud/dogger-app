@@ -511,7 +511,46 @@ export default function BookingFlow() {
         </div>
       );
     }
-
+// Mode planifié — pas d'ETA, confirmation directe
+    if (homeMode === 'later') {
+      return (
+        <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto' }}>
+          <div style={{ background: 'linear-gradient(160deg, #D97706, #F59E0B)', padding: '48px 24px 32px', textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>📅</div>
+            <h2 style={{ fontSize: 24, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Garde planifiée !</h2>
+            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.9)' }}>{homeStartDate} → {homeEndDate || homeStartDate}</p>
+          </div>
+          <div style={{ padding: '24px 20px' }}>
+            <div style={{ background: '#FFF8E1', borderRadius: 16, padding: '16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>{walker.emoji || '🧑'}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>{walker.name}</div>
+                <div style={{ fontSize: 13, color: '#D97706' }}>⭐ {walker.rating} · {walker.walks} balades</div>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>✅ Confirmé pour les dates choisies</div>
+              </div>
+            </div>
+            <div style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>📋 Récapitulatif</div>
+              <div style={{ fontSize: 13, color: '#555', marginBottom: 6 }}>📅 {homeStartDate}{homeEndDate && homeEndDate !== homeStartDate ? ` → ${homeEndDate}` : ''}</div>
+              <div style={{ fontSize: 13, color: '#555', marginBottom: 6 }}>🕐 Dépôt {homeDepositTime || '—'} · Reprise {homePickupTime || '—'}</div>
+              <div style={{ fontSize: 13, color: '#555', marginBottom: 6 }}>⏱️ {formatDuration(homeDuration)}</div>
+              <div style={{ fontSize: 13, color: '#555' }}>📍 {homeAddress}</div>
+            </div>
+            <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#D97706', fontWeight: 500, marginBottom: 16 }}>
+              📲 {walker.name} sera notifié et viendra récupérer votre chien le {homeStartDate} à {homeDepositTime || 'l\'heure convenue'}.
+            </div>
+            <button onClick={() => setShowChat(true)}
+              style={{ width: '100%', padding: 14, background: '#FFF8E1', color: '#D97706', border: '1.5px solid #F59E0B', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
+              💬 Contacter {walker.name}
+            </button>
+            <button onClick={() => navigate('/dashboard')}
+              style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
+              🏠 Retour au tableau de bord
+            </button>
+          </div>
+        </div>
+      );
+    }
     const isArriving = walkerPhase === 'arriving';
     const isHere = walkerPhase === 'here';
     return (
@@ -1028,7 +1067,13 @@ export default function BookingFlow() {
                 <div style={{ position: 'absolute', bottom: 10, left: 10, background: '#fff', borderRadius: 10, padding: '4px 10px', fontSize: 11, color: '#555' }}>🟢 Disponible &nbsp; 🔴 Indisponible</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {MOCK_WALKERS.filter(w => w.available).map(w => (
+                {MOCK_WALKERS.filter(w => w.available || homeMode === 'later').filter(w => {
+  if (homeMode === 'later') {
+    // Simuler disponibilité selon dates — on enlève Sophie (id 4) si dates futures
+    return w.id !== 4;
+  }
+  return w.available;
+}).map(w => (
                   <div key={w.id} onClick={() => setSelectedHomeWalker(selectedHomeWalker?.id === w.id ? null : w)}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 16, border: selectedHomeWalker?.id === w.id ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: selectedHomeWalker?.id === w.id ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
                     <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>{w.photo}</div>

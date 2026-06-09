@@ -316,8 +316,7 @@ export default function BookingFlow() {
           localStorage.setItem('dogger_walk_address', addr);
         }
       } catch (e) { setError('Impossible de récupérer votre adresse'); }
-      finally { setLocating(false); }
-    }, () => { setError('Permission refusée'); setLocating(false); }, { timeout: 10000, enableHighAccuracy: true });
+      finally { setLocating(false); }}, () => { setLocating(false); }, { timeout: 10000, enableHighAccuracy: true });
   };
 
   useEffect(() => {
@@ -1085,9 +1084,18 @@ export default function BookingFlow() {
                         {w.specialties.map(s => <span key={s} style={{ background: '#FFF8E1', color: '#D97706', fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>{s}</span>)}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#F59E0B' }}>~{w.eta}</div>
-                      <div style={{ fontSize: 10, color: '#888' }}>arrivée</div>
+<div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      {homeMode === 'now' ? (
+                        <>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: '#F59E0B' }}>~{w.eta}</div>
+                          <div style={{ fontSize: 10, color: '#888' }}>arrivée</div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#F59E0B' }}>✅ Dispo</div>
+                          <div style={{ fontSize: 10, color: '#888' }}>{homeStartDate || 'date choisie'}</div>
+                        </>
+                      )}
                       {selectedHomeWalker?.id === w.id && <div style={{ fontSize: 11, color: '#D97706', fontWeight: 700, marginTop: 4 }}>✓ Choisi</div>}
                     </div>
                   </div>

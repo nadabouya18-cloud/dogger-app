@@ -791,6 +791,19 @@ export default function BookingFlow() {
                   </div>
                 </>
               )}
+{walkMode === 'later' && (
+                <>
+                  <label style={labelStyle}>⏱️ Durée</label>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                    {DURATIONS.map(d => (
+                      <div key={d.id} onClick={() => setWalkDuration(d.id)}
+                        style={{ padding: '10px 16px', borderRadius: 12, border: walkDuration === d.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkDuration === d.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 14, fontWeight: walkDuration === d.id ? 700 : 400, color: walkDuration === d.id ? '#0F6E56' : '#555' }}>
+                        {d.label}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
               <label style={labelStyle}>Instructions spéciales (optionnel)</label>
               <textarea style={textareaStyle} placeholder="Code porte, comportement particulier..." value={walkInstructions} onChange={e => setWalkInstructions(e.target.value)} />
             </div>
@@ -950,6 +963,79 @@ export default function BookingFlow() {
               <label style={labelStyle}>Adresse de récupération</label>
               <input ref={homeAddressRef} style={inputStyle} placeholder="12 rue de la Paix, Paris 75001"
                 value={homeAddress} onChange={e => { setHomeAddress(e.target.value); localStorage.setItem('dogger_walk_address', e.target.value); }} />
+                  {/* Toggle Maintenant / Planifier */}
+              <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 16 }}>
+                {[{id:'now',label:'⚡ Maintenant'},{id:'later',label:'📅 Planifier'}].map(m => (
+                  <button key={m.id} onClick={() => setWalkMode(m.id)}
+                    style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: walkMode === m.id ? '#fff' : 'transparent', color: walkMode === m.id ? '#D97706' : '#888', boxShadow: walkMode === m.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              {walkMode === 'later' && (
+                <div style={{ background: '#FFF8E1', borderRadius: 14, padding: '16px', marginBottom: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                    <div>
+                      <label style={{ ...labelStyle, color: '#D97706' }}>📅 Date de début</label>
+                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date"
+                        value={walkDate} min={new Date().toISOString().split('T')[0]}
+                        onChange={e => setWalkDate(e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={{ ...labelStyle, color: '#D97706' }}>📅 Date de fin</label>
+                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date"
+                        value={walkDate} min={walkDate || new Date().toISOString().split('T')[0]}
+                        onChange={e => {
+                          // Calculer durée automatiquement
+                          if (walkDate && e.target.value) {
+                            const start = new Date(walkDate);
+                            const end = new Date(e.target.value);
+                            const diffMinutes = Math.round((end - start) / 60000);
+                            if (diffMinutes > 0) setHomeDuration(diffMinutes);
+                          }
+                        }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                    <div>
+                      <label style={{ ...labelStyle, color: '#D97706' }}>🕐 Heure de dépôt</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        {['08:00','09:00','10:00','11:00','12:00','13:00'].map(t => (
+                          <div key={t} onClick={() => setWalkTime(t)}
+                            style={{ padding: '8px 4px', textAlign: 'center', borderRadius: 10, border: walkTime === t ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: walkTime === t ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer', fontSize: 12, fontWeight: walkTime === t ? 700 : 400, color: walkTime === t ? '#D97706' : '#555' }}>
+                            {t}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ ...labelStyle, color: '#D97706' }}>🕐 Heure de reprise</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        {['14:00','15:00','16:00','17:00','18:00','19:00'].map(t => (
+                          <div key={`end-${t}`} onClick={() => {
+                            // Calculer durée si même jour
+                            if (walkTime) {
+                              const [sh, sm] = walkTime.split(':').map(Number);
+                              const [eh, em] = t.split(':').map(Number);
+                              const diffMin = (eh * 60 + em) - (sh * 60 + sm);
+                              if (diffMin > 0) setHomeDuration(diffMin);
+                            }
+                          }}
+                            style={{ padding: '8px 4px', textAlign: 'center', borderRadius: 10, border: '1.5px solid #E8E8E8', background: '#FAFAFA', cursor: 'pointer', fontSize: 12, color: '#555' }}>
+                            {t}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {homeDuration > 0 && (
+                    <div style={{ background: '#F59E0B', borderRadius: 10, padding: '8px 14px', fontSize: 13, color: '#fff', fontWeight: 600, textAlign: 'center' }}>
+                      ⏱️ Durée calculée : {homeDuration >= 1440 ? `${Math.floor(homeDuration/1440)} jour${Math.floor(homeDuration/1440) > 1 ? 's' : ''}` : homeDuration >= 60 ? `${Math.floor(homeDuration/60)}h${homeDuration%60 > 0 ? homeDuration%60 : ''}` : `${homeDuration} min`}
+                    </div>
+                  )}
+                </div>
+              )}
               <label style={labelStyle}>⏱️ Durée de la garde</label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {HOME_DURATIONS.map(d => (

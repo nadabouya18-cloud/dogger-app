@@ -89,11 +89,8 @@ export default function BookingFlow() {
 
   // Lire ?type= depuis l'URL
 useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const type = params.get('type');
-    if (type === 'walk') setFlowType('walk');
-    else if (type === 'home') setFlowType('home');
-    // Si pas de paramètre, on ne touche pas au flowType
+    if (location.state?.type === 'walk') setFlowType('walk');
+    else if (location.state?.type === 'home') setFlowType('home');
   }, []);
 
   // Walk

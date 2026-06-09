@@ -391,11 +391,14 @@ useEffect(() => {
     return sec > 0 ? `${m} min ${sec}s` : `${m} min`;
   };
 
-  const confirmSearch = () => {
+const confirmSearch = () => {
     const addr = flowType === 'home' ? homeAddress : walkAddress;
-    localStorage.setItem('dogger_walk_active', String(flowType === 'home' ? homeDuration : walkDuration));
+    // Ne pas sauvegarder comme balade active si c'est une garde planifiée
+    if (!(flowType === 'home' && homeMode === 'later')) {
+      localStorage.setItem('dogger_walk_active', String(flowType === 'home' ? homeDuration : walkDuration));
+      localStorage.setItem('dogger_walk_start', String(Date.now()));
+    }
     localStorage.setItem('dogger_walk_service', flowType === 'home' ? 'Garde à domicile' : walkService);
-    localStorage.setItem('dogger_walk_start', String(Date.now()));
     localStorage.setItem('dogger_walk_address', addr);
     if (userCoords) localStorage.setItem('dogger_user_coords', JSON.stringify(userCoords));
     if (flowType === 'home' && homeMode === 'later') {

@@ -998,6 +998,13 @@ export default function BookingFlow() {
                   </div>
                 </>
               )}
+              <label style={{ ...labelStyle, marginTop: 16 }}>📝 Instructions pour le gardien (optionnel)</label>
+              <textarea
+                style={textareaStyle}
+                placeholder="Code porte, digicode, comportement particulier..."
+                value={homeInstructions}
+                onChange={e => setHomeInstructions(e.target.value)}
+              />
             </div>
           )}
 

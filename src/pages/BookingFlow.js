@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const type = params.get('type');
+    if (type === 'walk') setFlowType('walk');
+    if (type === 'home') setFlowType('home');
+  }, [location.search]);
 import { supabase } from '../supabase';
 
 const WALK_SERVICES = [

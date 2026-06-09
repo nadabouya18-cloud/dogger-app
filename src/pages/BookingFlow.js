@@ -118,6 +118,7 @@ export default function BookingFlow() {
   const [homeMedInfo, setHomeMedInfo] = useState('');
   const [homeBehaviorInfo, setHomeBehaviorInfo] = useState('');
   const [homeAccessories, setHomeAccessories] = useState('');
+  const [homeInstructions, setHomeInstructions] = useState('');
   const [selectedHomeWalker, setSelectedHomeWalker] = useState(null);
   const [showWalkerDetail, setShowWalkerDetail] = useState(null);
 

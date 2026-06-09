@@ -295,7 +295,7 @@ export default function Dashboard() {
                 <p style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>Que voulez-vous commander ?</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   {/* Balade */}
-                  <div onClick={() => navigate('/book')}
+                  <div onClick={() => navigate('/book?type=walk')
                     style={{ background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '18px 14px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>🐕</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Balade</div>
@@ -306,7 +306,7 @@ export default function Dashboard() {
                     <div style={{ position: 'absolute', bottom: -10, right: -10, fontSize: 48, opacity: 0.15 }}>🐕</div>
                   </div>
                   {/* Dogger Home */}
-                  <div onClick={() => navigate('/book')}
+                  <div onClick={() => navigate('/book?type=home')
                     style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)', borderRadius: 18, padding: '18px 14px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(255,255,255,0.25)', borderRadius: 8, padding: '2px 7px', fontSize: 9, fontWeight: 700, color: '#fff' }}>Nouveau</div>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>🏠</div>

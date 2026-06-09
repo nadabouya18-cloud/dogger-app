@@ -1130,7 +1130,9 @@ export default function BookingFlow() {
                     <div style={{ fontSize: 28 }}>{selectedHomeWalker.photo}</div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: '#D97706' }}>{selectedHomeWalker.name}</div>
-                      <div style={{ fontSize: 12, color: '#555' }}>⭐ {selectedHomeWalker.rating} · Arrive en ~{selectedHomeWalker.eta}</div>
+                      <div style={{ fontSize: 12, color: '#555' }}>
+                        ⭐ {selectedHomeWalker.rating} · {homeMode === 'now' ? `Arrive en ~${selectedHomeWalker.eta}` : `Disponible le ${homeStartDate}`}
+                      </div>
                     </div>
                   </div>
                 )}

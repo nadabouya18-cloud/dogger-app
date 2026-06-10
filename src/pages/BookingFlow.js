@@ -419,7 +419,9 @@ export default function BookingFlow() {
       setHomeConfirmed(true);
       return;
     }
-    localStorage.setItem('dogger_home_confirmed', '1');
+    if (flowType === 'home') {
+      localStorage.setItem('dogger_home_confirmed', '1');
+    }
     setSearching(true);
   };
 
@@ -530,7 +532,7 @@ export default function BookingFlow() {
               ))}
             </div>
             <button onClick={() => setShowChat(true)} style={{ width: '100%', padding: 14, background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>💬 Contacter {walker.name}</button>
-            <button onClick={() => navigate('/dashboard')} style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>🏠 Retour au tableau de bord</button>
+            <button onClick={() => {   ['dogger_home_confirmed','dogger_home_walker','dogger_flow_type','dogger_walker','dogger_walker_eta','dogger_walker_phase'].forEach(k => localStorage.removeItem(k));   navigate('/dashboard'); }} style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>🏠 Retour au tableau de bord</button>
           </div>
         </div>
       );
@@ -564,7 +566,7 @@ export default function BookingFlow() {
               📲 {walker.name} sera notifié et viendra récupérer votre chien le {homeStartDate} à {homeDepositTime || "l'heure convenue"}.
             </div>
             <button onClick={() => setShowChat(true)} style={{ width: '100%', padding: 14, background: '#FFF8E1', color: '#D97706', border: '1.5px solid #F59E0B', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>💬 Contacter {walker.name}</button>
-            <button onClick={() => navigate('/dashboard')} style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>🏠 Retour au tableau de bord</button>
+            <button onClick={() => {   ['dogger_home_confirmed','dogger_home_walker','dogger_flow_type','dogger_walker','dogger_walker_eta','dogger_walker_phase'].forEach(k => localStorage.removeItem(k));   navigate('/dashboard'); }} style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>🏠 Retour au tableau de bord</button>
           </div>
         </div>
       );
@@ -696,7 +698,7 @@ export default function BookingFlow() {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
         <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 24px 40px' }}>
-          <button onClick={() => navigate('/dashboard')} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 24 }}>← Retour</button>
+          <button onClick={() => {   ['dogger_home_confirmed','dogger_home_walker','dogger_flow_type','dogger_walker','dogger_walker_eta','dogger_walker_phase'].forEach(k => localStorage.removeItem(k));   navigate('/dashboard'); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 24 }}>← Retour</button>
           <div style={{ fontSize: 36, marginBottom: 10 }}>🐾</div>
           <h1 style={{ fontSize: 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Que recherchez-vous ?</h1>
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)' }}>Choisissez le type de service</p>

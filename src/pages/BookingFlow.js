@@ -1,429 +1,51 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase } from '../supabase';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Home from './pages/Home';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
+import BookingFlow from './pages/BookingFlow';
+import WalkerHome from './pages/WalkerHome';
+import AddDog from './pages/AddDog';
+import { supabase } from './supabase';
 
-const WALK_SERVICES = [
-  { id: 'walk',   icon: '🐕',  name: 'Balade',           desc: 'Promenade dans le quartier',   pricePerMin: 0.42, popular: false },
-  { id: 'shared', icon: '🐕‍🦺', name: 'Balade Shared',    desc: 'Balade en groupe économique',  pricePerMin: 0.25, popular: true  },
-  { id: 'parc',   icon: '🌳',  name: 'Dogger Parc',      desc: 'Session de jeu en parc canin', pricePerMin: 0.35, popular: false },
-];
-
-const DURATIONS = [
-  { id: 15, label: '15 min' }, { id: 30, label: '30 min' },
-  { id: 45, label: '45 min' }, { id: 60, label: '1h' },
-  { id: 90, label: '1h30' },   { id: 120, label: '2h' },
-];
-
-const HOME_DURATIONS = [
-  { id: 300,   label: '5h',        desc: 'Demi-journée', price: 35  },
-  { id: 720,   label: '12h',       desc: 'Journée',      price: 55  },
-  { id: 1440,  label: '1 jour',    desc: '24h',          price: 75  },
-  { id: 2880,  label: '2 jours',   desc: '48h',          price: 140 },
-  { id: 4320,  label: '3 jours',   desc: '72h',          price: 195 },
-  { id: 10080, label: '1 semaine', desc: '7 jours',      price: 399 },
-];
-
-const MOCK_WALKERS = [
-  { id: 1, name: 'Thomas M.', rating: 4.9, walks: 127, lat: 48.8576, lng: 2.3532, price: 13, bio: "Passionné par les animaux, 3 ans d'expérience", specialties: ['Petits gabarits', 'Seniors'], photo: '🧑', available: true, dist: '320m', eta: '8 min' },
-  { id: 2, name: 'Julie R.',  rating: 4.8, walks: 89,  lat: 48.8556, lng: 2.3512, price: 12, bio: 'Vétérinaire en formation, douce et attentionnée', specialties: ['Tous gabarits', 'Chiots'], photo: '👩', available: true, dist: '450m', eta: '10 min' },
-  { id: 3, name: 'Karim B.',  rating: 4.7, walks: 64,  lat: 48.8596, lng: 2.3552, price: 11, bio: 'Sportif, idéal pour les chiens énergiques', specialties: ['Grands gabarits', 'Sport'], photo: '🧔', available: true, dist: '600m', eta: '12 min' },
-  { id: 4, name: 'Sophie L.', rating: 5.0, walks: 203, lat: 48.8546, lng: 2.3572, price: 15, bio: "Professionnelle certifiée, 5 ans d'expérience", specialties: ['Tous gabarits', 'Garde'], photo: '👱‍♀️', available: false, dist: '200m', eta: '5 min' },
-  { id: 5, name: 'Marc D.',   rating: 4.6, walks: 45,  lat: 48.8586, lng: 2.3492, price: 10, bio: 'Retraité passionné, beaucoup de disponibilité', specialties: ['Petits gabarits'], photo: '👴', available: true, dist: '750m', eta: '15 min' },
-];
-
-const TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
-const DEPOSIT_TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00'];
-const PICKUP_TIMES  = ['14:00','15:00','16:00','17:00','18:00','19:00'];
-
-const SEARCH_STEPS = [
-  '🔍 Recherche de gardiens à proximité...',
-  '📡 Vérification des disponibilités...',
-  '🐾 3 gardiens disponibles trouvés !',
-  '📲 Envoi de la demande...',
-  '✅ Mise en relation en cours...',
-];
-
-const WALK_SEARCH_STEPS = [
-  '🔍 Recherche de promeneurs à proximité...',
-  '📡 Analyse de votre zone...',
-  '🐾 3 promeneurs disponibles trouvés !',
-  '📲 Envoi de la demande...',
-  '✅ Mise en relation en cours...',
-];
-
-const CANCEL_REASONS = [
-  "Je me suis trompé d'adresse",
-  "Je me suis trompé de durée",
-  "Le promeneur n'avance pas",
-  "Mon chien n'est plus disponible",
-  "J'ai trouvé une autre solution",
-  "Autre raison",
-];
-
-const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
-
-const getSavedPhase   = () => localStorage.getItem('dogger_walker_phase') || 'incoming';
-const getSavedEta     = () => parseInt(localStorage.getItem('dogger_walker_eta') || '480');
-const getSavedWalker  = () => { const w = localStorage.getItem('dogger_walker'); return w ? JSON.parse(w) : null; };
-const getSavedAddress = () => localStorage.getItem('dogger_walk_address') || '';
-
-function formatDuration(minutes) {
-  if (minutes >= 1440) {
-    const days = Math.floor(minutes / 1440);
-    return `${days} jour${days > 1 ? 's' : ''}`;
-  }
-  if (minutes >= 60) {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return m > 0 ? `${h}h${m}` : `${h}h`;
-  }
-  return `${minutes} min`;
+function ProtectedRoute({ children }) {
+  const [session, setSession] = React.useState(undefined);
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+  }, []);
+  if (session === undefined) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }}>
+      <div style={{ fontSize: 48 }}>🐾</div>
+    </div>
+  );
+  if (!session) return <Navigate to="/login" />;
+  return children;
 }
 
-export default function BookingFlow() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const savedWalkerData = getSavedWalker();
-  const isResuming = !!savedWalkerData && !!localStorage.getItem('dogger_walk_active');
-
-  const [flowType, setFlowType] = useState(() => {
-    if (location.state?.type) return location.state.type;
-    return localStorage.getItem('dogger_flow_type') || null;
-  });
-
-  useEffect(() => {
-    if (location.state?.type === 'walk') {
-      setFlowType('walk');
-      localStorage.setItem('dogger_flow_type', 'walk');
-    } else if (location.state?.type === 'home') {
-      setFlowType('home');
-      localStorage.setItem('dogger_flow_type', 'home');
-    } else {
-      const saved = localStorage.getItem('dogger_flow_type');
-      if (saved) setFlowType(saved);
-    }
-  }, []);
-
-  // Walk
-  const [walkStep, setWalkStep] = useState(1);
-  const [walkService, setWalkService] = useState('walk');
-  const [walkDuration, setWalkDuration] = useState(30);
-  const [walkMode, setWalkMode] = useState('now');
-  const [walkAddress, setWalkAddress] = useState(getSavedAddress());
-  const [walkDate, setWalkDate] = useState('');
-  const [walkTime, setWalkTime] = useState('');
-  const [walkInstructions, setWalkInstructions] = useState('');
-
-  // Home
-  const [homeStep, setHomeStep] = useState(1);
-  const [homeMode, setHomeMode] = useState('now');
-  const [homeDuration, setHomeDuration] = useState(300);
-  const [homeAddress, setHomeAddress] = useState(getSavedAddress());
-  const [homeStartDate, setHomeStartDate] = useState('');
-  const [homeEndDate, setHomeEndDate] = useState('');
-  const [homeDepositTime, setHomeDepositTime] = useState('');
-  const [homePickupTime, setHomePickupTime] = useState('');
-  const [homeFoodInfo, setHomeFoodInfo] = useState('');
-  const [homeMedInfo, setHomeMedInfo] = useState('');
-  const [homeBehaviorInfo, setHomeBehaviorInfo] = useState('');
-  const [homeAccessories, setHomeAccessories] = useState('');
-  const [homeInstructions, setHomeInstructions] = useState('');
-  const [selectedHomeWalker, setSelectedHomeWalker] = useState(null);
-  const [showWalkerDetail, setShowWalkerDetail] = useState(null);
-
-  // Shared
-  const [selectedDogs, setSelectedDogs] = useState([]);
-  const [userDogs, setUserDogs] = useState([]);
-  const [error, setError] = useState('');
-  const [locating, setLocating] = useState(false);
-  const [userCoords, setUserCoords] = useState(null);
-
-  // Matching
-  const [searching, setSearching] = useState(false);
-  const [searchStep, setSearchStep] = useState(0);
-  const [matched, setMatched] = useState(isResuming);
-  const [walker, setWalker] = useState(() => {
-    const hw = localStorage.getItem('dogger_home_walker');
-    return hw ? JSON.parse(hw) : getSavedWalker();
-  });
-  const [dots, setDots] = useState([false, false, false]);
-  const [walkerPhase, setWalkerPhase] = useState(getSavedPhase());
-  const [etaSeconds, setEtaSeconds] = useState(getSavedEta());
-  const [routePath, setRoutePath] = useState([]);
-  const [showCancel, setShowCancel] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
-
-  // Chat
-  const [messages, setMessages] = useState([
-    { id: 1, from: 'walker', text: "Bonjour ! J'ai bien reçu votre demande 🐾", time: 'maintenant' }
-  ]);
-  const [newMessage, setNewMessage] = useState('');
-  const [showChat, setShowChat] = useState(false);
-
-  // Home confirmed
-  const [homeConfirmed, setHomeConfirmed] = useState(!!localStorage.getItem('dogger_home_confirmed'));
-  const [dogHandedOver, setDogHandedOver] = useState(false);
-
-  const mapRef = useRef(null);
-  const walkerMapRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const walkerMapInstanceRef = useRef(null);
-  const walkerMarkerRef = useRef(null);
-  const addressRef = useRef(null);
-  const homeAddressRef = useRef(null);
-  const chatEndRef = useRef(null);
-
-  const calcHomeDuration = (startDate, endDate, depositTime, pickupTime) => {
-    if (!startDate) return;
-    if (startDate === endDate && depositTime && pickupTime) {
-      const [sh, sm] = depositTime.split(':').map(Number);
-      const [eh, em] = pickupTime.split(':').map(Number);
-      const diff = (eh * 60 + em) - (sh * 60 + sm);
-      if (diff > 0) setHomeDuration(diff);
-    } else if (endDate && startDate < endDate) {
-      const start = new Date(`${startDate}T${depositTime || '08:00'}`);
-      const end   = new Date(`${endDate}T${pickupTime || '18:00'}`);
-      const diff  = Math.round((end - start) / 60000);
-      if (diff > 0) setHomeDuration(diff);
-    }
-  };
-
-  useEffect(() => {
-    const loadDogs = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const { data } = await supabase.from('dogs').select('*').eq('owner_id', session.user.id);
-      if (data) { setUserDogs(data); if (data.length === 1) setSelectedDogs([data[0].id]); }
-    };
-    loadDogs();
-  }, []);
-
-  useEffect(() => {
-    if (flowType !== 'walk' || walkStep !== 1 || !window.google) return;
-    const input = addressRef.current;
-    if (!input) return;
-    const ac = new window.google.maps.places.Autocomplete(input, { types: ['address'], componentRestrictions: { country: 'fr' } });
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace();
-      if (place.formatted_address) setWalkAddress(place.formatted_address);
-      if (place.geometry?.location) {
-        const coords = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() };
-        setUserCoords(coords);
-        localStorage.setItem('dogger_user_coords', JSON.stringify(coords));
-      }
-    });
-  }, [flowType, walkStep]);
-
-  useEffect(() => {
-    if (flowType !== 'home' || homeStep !== 1 || !window.google) return;
-    const input = homeAddressRef.current;
-    if (!input) return;
-    const ac = new window.google.maps.places.Autocomplete(input, { types: ['address'], componentRestrictions: { country: 'fr' } });
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace();
-      if (place.formatted_address) setHomeAddress(place.formatted_address);
-      if (place.geometry?.location) {
-        const coords = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() };
-        setUserCoords(coords);
-        localStorage.setItem('dogger_user_coords', JSON.stringify(coords));
-      }
-    });
-  }, [flowType, homeStep]);
-
-  const initWalkerMap = useCallback(() => {
-    if (!walkerMapRef.current || !window.google || walkerMapInstanceRef.current) return;
-    const center = userCoords || { lat: 48.8566, lng: 2.3522 };
-    const map = new window.google.maps.Map(walkerMapRef.current, {
-      center, zoom: 15, disableDefaultUI: true,
-      styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
-    });
-    walkerMapInstanceRef.current = map;
-    MOCK_WALKERS.forEach(w => {
-      const marker = new window.google.maps.Marker({
-        position: { lat: w.lat, lng: w.lng }, map,
-        icon: { url: w.available ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png' : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png', scaledSize: new window.google.maps.Size(36, 36) },
-        title: w.name
-      });
-      marker.addListener('click', () => setShowWalkerDetail(w));
-    });
-    new window.google.maps.Marker({ position: center, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) }, title: 'Vous' });
-    setTimeout(() => { window.google.maps.event.trigger(map, 'resize'); map.setCenter(center); }, 200);
-  }, [userCoords]);
-
-  useEffect(() => {
-    if (flowType === 'home' && homeStep === 4 && walkerMapRef.current) {
-      walkerMapInstanceRef.current = null;
-      setTimeout(initWalkerMap, 400);
-    }
-  }, [flowType, homeStep, initWalkerMap]);
-
-  const initMap = useCallback(() => {
-    if (!mapRef.current || !window.google || !userCoords || mapInstanceRef.current) return;
-    mapRef.current.style.height = '320px';
-    const map = new window.google.maps.Map(mapRef.current, {
-      center: userCoords, zoom: 15, disableDefaultUI: true,
-      styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
-    });
-    mapInstanceRef.current = map;
-    setTimeout(() => { window.google.maps.event.trigger(map, 'resize'); map.setCenter(userCoords); }, 200);
-    new window.google.maps.Marker({ position: userCoords, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new window.google.maps.Size(40, 40) } });
-    const startCoords = { lat: userCoords.lat + (Math.random() - 0.5) * 0.008, lng: userCoords.lng + (Math.random() - 0.5) * 0.008 };
-    const wm = new window.google.maps.Marker({ position: startCoords, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) } });
-    walkerMarkerRef.current = wm;
-    const ds = new window.google.maps.DirectionsService();
-    const dr = new window.google.maps.DirectionsRenderer({ map, suppressMarkers: true, polylineOptions: { strokeColor: '#1D9E75', strokeWeight: 4 } });
-    ds.route({ origin: startCoords, destination: userCoords, travelMode: window.google.maps.TravelMode.WALKING }, (result, status) => {
-      if (status === 'OK') {
-        dr.setDirections(result);
-        setRoutePath(result.routes[0].overview_path);
-        const dur = result.routes[0].legs[0].duration.value;
-        setEtaSeconds(dur);
-        localStorage.setItem('dogger_walker_eta', String(dur));
-      }
-    });
-  }, [userCoords]);
-
-  useEffect(() => {
-    if (matched && userCoords && mapRef.current) setTimeout(initMap, 400);
-  }, [matched, userCoords, initMap]);
-
-  useEffect(() => {
-    if (!matched || walkerPhase === 'here' || routePath.length === 0) return;
-    const totalSteps = routePath.length;
-    const msPerStep = etaSeconds > 0 ? (etaSeconds * 1000) / totalSteps : 1000;
-    const interval = setInterval(() => {
-      setRoutePath(prev => {
-        if (walkerMarkerRef.current && prev.length > 1) { walkerMarkerRef.current.setPosition(prev[1]); return prev.slice(1); }
-        return prev;
-      });
-    }, Math.max(msPerStep, 800));
-    return () => clearInterval(interval);
-  }, [matched, walkerPhase, routePath.length, etaSeconds]);
-
-  useEffect(() => {
-    if (!matched || walkerPhase === 'here') return;
-    const interval = setInterval(() => {
-      setEtaSeconds(s => {
-        const next = s - 1;
-        localStorage.setItem('dogger_walker_eta', String(Math.max(0, next)));
-        if (next <= 120 && next > 0) setWalkerPhase(p => { if (p !== 'arriving' && p !== 'here') { localStorage.setItem('dogger_walker_phase', 'arriving'); return 'arriving'; } return p; });
-        if (next <= 0) { setWalkerPhase('here'); localStorage.setItem('dogger_walker_phase', 'here'); clearInterval(interval); return 0; }
-        return next;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [matched, walkerPhase]);
-
-  const handleLocate = (setAddr) => {
-    if (!navigator.geolocation) { setError('Géolocalisation non supportée'); return; }
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      try {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        const coords = { lat, lng };
-        setUserCoords(coords);
-        localStorage.setItem('dogger_user_coords', JSON.stringify(coords));
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, { headers: { 'Accept-Language': 'fr' } });
-        const data = await res.json();
-        if (data.address) {
-          const a = data.address;
-          const addr = [a.house_number, a.road, a.postcode, a.city || a.town || a.village].filter(Boolean).join(', ') || data.display_name;
-          setAddr(addr);
-          localStorage.setItem('dogger_walk_address', addr);
-        }
-      } catch (e) { setError('Impossible de récupérer votre adresse'); }
-      finally { setLocating(false); }
-    }, () => { setLocating(false); }, { timeout: 10000, enableHighAccuracy: true });
-  };
-
-  useEffect(() => {
-    if (!searching) return;
-    let i = 0;
-    const steps = flowType === 'home' ? SEARCH_STEPS : WALK_SEARCH_STEPS;
-    const interval = setInterval(() => {
-      setSearchStep(i); i++;
-      if (i >= steps.length) {
-        clearInterval(interval);
-        setTimeout(() => {
-          const w = flowType === 'home' && selectedHomeWalker ? { ...selectedHomeWalker, emoji: selectedHomeWalker.photo } : { name: 'Thomas M.', rating: 4.9, walks: 127, emoji: '🧑' };
-          localStorage.setItem('dogger_walker', JSON.stringify(w));
-          localStorage.setItem('dogger_walker_phase', 'incoming');
-          localStorage.setItem('dogger_walker_eta', '480');
-          setWalker(w); setWalkerPhase('incoming'); setEtaSeconds(480); setMatched(true); setSearching(false);
-        }, 800);
-      }
-    }, 900);
-    return () => clearInterval(interval);
-  }, [searching, flowType, selectedHomeWalker]);
-
-  useEffect(() => {
-    if (!searching) return;
-    const interval = setInterval(() => {
-      setDots(d => { const n=[...d]; const i=n.indexOf(false); if(i===-1) return [false,false,false]; n[i]=true; return n; });
-    }, 300);
-    return () => clearInterval(interval);
-  }, [searching]);
-
-  useEffect(() => {
-    if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, showChat]);
-
-  const toggleDog = (id) => setSelectedDogs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-
-  const handleCancelConfirm = () => {
-    ['dogger_walk_active','dogger_walk_service','dogger_walk_start','dogger_walk_address','dogger_walker','dogger_walker_eta','dogger_walker_phase','dogger_walker_start_coords','dogger_flow_type','dogger_home_confirmed','dogger_home_walker'].forEach(k => localStorage.removeItem(k));
-    navigate('/dashboard');
-  };
-
-  const startWalk = () => {
-    ['dogger_walker','dogger_walker_eta','dogger_walker_phase'].forEach(k => localStorage.removeItem(k));
-    if (flowType === 'home') setHomeConfirmed(true);
-    else navigate('/dashboard#live');
-  };
-
-  const confirmHandover = () => {
-    setDogHandedOver(true);
-    localStorage.setItem('dogger_walk_active', String(homeDuration));
-    localStorage.setItem('dogger_walk_start', String(Date.now()));
-  };
-
-  const sendMessage = () => {
-    if (!newMessage.trim()) return;
-    setMessages(m => [...m, { id: Date.now(), from: 'owner', text: newMessage, time: 'maintenant' }]);
-    setNewMessage('');
-    setTimeout(() => {
-      const r = ["Parfait, je note ! 🐾","Bien reçu, merci !","Je serai là dans quelques minutes 🚶","Votre chien est adorable !","Ne vous inquiétez pas 🐕"];
-      setMessages(m => [...m, { id: Date.now()+1, from: 'walker', text: r[Math.floor(Math.random()*r.length)], time: 'maintenant' }]);
-    }, 1500);
-  };
-
-  const formatEta = (s) => {
-    if (s <= 0) return 'quelques secondes';
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    if (m === 0) return `${sec}s`;
-    return sec > 0 ? `${m} min ${sec}s` : `${m} min`;
-  };
-
-  const confirmSearch = () => {
-    const addr = flowType === 'home' ? homeAddress : walkAddress;
-    if (!(flowType === 'home' && homeMode === 'later')) {
-      localStorage.setItem('dogger_walk_active', String(flowType === 'home' ? homeDuration : walkDuration));
-      localStorage.setItem('dogger_walk_start', String(Date.now()));
-    }
-    localStorage.setItem('dogger_walk_service', flowType === 'home' ? 'Garde à domicile' : walkService);
-    localStorage.setItem('dogger_walk_address', addr);
-    if (userCoords) localStorage.setItem('dogger_user_coords', JSON.stringify(userCoords));
-    if (flowType === 'home' && homeMode === 'later') {
-      const w = selectedHomeWalker ? { ...selectedHomeWalker, emoji: selectedHomeWalker.photo } : { name: 'Thomas M.', rating: 4.9, walks: 127, emoji: '🧑' };
-      setWalker(w);
-      localStorage.setItem('dogger_home_confirmed', '1');
-      localStorage.setItem('dogger_home_walker', JSON.stringify(w));
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/book" element={<ProtectedRoute><BookingFlow /></ProtectedRoute>} />
+        <Route path="/book/:flowType" element={<ProtectedRoute><BookingFlow /></ProtectedRoute>} />
+        <Route path="/book/:flowType/:step" element={<ProtectedRoute><BookingFlow /></ProtectedRoute>} />
+        <Route path="/walker" element={<WalkerHome />} />
+        <Route path="/add-dog" element={<ProtectedRoute><AddDog /></ProtectedRoute>} />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+Confirmed(true);
       setHomeConfirmed(true);
       return;
-    }
-    if (flowType === 'home') {
-      localStorage.setItem('dogger_home_confirmed', '1');
     }
     setSearching(true);
   };
@@ -535,7 +157,7 @@ export default function BookingFlow() {
               ))}
             </div>
             <button onClick={() => setShowChat(true)} style={{ width: '100%', padding: 14, background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>💬 Contacter {walker.name}</button>
-            <button onClick={() => {   ['dogger_home_confirmed','dogger_home_walker','dogger_flow_type','dogger_walker','dogger_walker_eta','dogger_walker_phase'].forEach(k => localStorage.removeItem(k));   navigate('/dashboard'); }} style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>🏠 Retour au tableau de bord</button>
+            <button onClick={goToDashboard} style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>🏠 Retour au tableau de bord</button>
           </div>
         </div>
       );
@@ -569,7 +191,7 @@ export default function BookingFlow() {
               📲 {walker.name} sera notifié et viendra récupérer votre chien le {homeStartDate} à {homeDepositTime || "l'heure convenue"}.
             </div>
             <button onClick={() => setShowChat(true)} style={{ width: '100%', padding: 14, background: '#FFF8E1', color: '#D97706', border: '1.5px solid #F59E0B', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>💬 Contacter {walker.name}</button>
-            <button onClick={() => {   ['dogger_home_confirmed','dogger_home_walker','dogger_flow_type','dogger_walker','dogger_walker_eta','dogger_walker_phase'].forEach(k => localStorage.removeItem(k));   navigate('/dashboard'); }} style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>🏠 Retour au tableau de bord</button>
+            <button onClick={goToDashboard} style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>🏠 Retour au tableau de bord</button>
           </div>
         </div>
       );
@@ -701,13 +323,13 @@ export default function BookingFlow() {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
         <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 24px 40px' }}>
-          <button onClick={() => {   ['dogger_home_confirmed','dogger_home_walker','dogger_flow_type','dogger_walker','dogger_walker_eta','dogger_walker_phase'].forEach(k => localStorage.removeItem(k));   navigate('/dashboard'); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 24 }}>← Retour</button>
+          <button onClick={goToDashboard} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 24 }}>← Retour</button>
           <div style={{ fontSize: 36, marginBottom: 10 }}>🐾</div>
           <h1 style={{ fontSize: 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Que recherchez-vous ?</h1>
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)' }}>Choisissez le type de service</p>
         </div>
         <div style={{ padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div onClick={() => setFlowType('walk')} style={{ background: '#F8FAF9', borderRadius: 20, padding: '24px', cursor: 'pointer', border: '1.5px solid #E8E8E8' }}>
+          <div onClick={() => { setFlowType('walk'); navigate('/book/walk'); }} style={{ background: '#F8FAF9', borderRadius: 20, padding: '24px', cursor: 'pointer', border: '1.5px solid #E8E8E8' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
               <div style={{ width: 56, height: 56, borderRadius: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🐕</div>
               <div>
@@ -723,7 +345,7 @@ export default function BookingFlow() {
               <span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>Dès 4€ →</span>
             </div>
           </div>
-          <div onClick={() => setFlowType('home')} style={{ background: 'linear-gradient(135deg, #FFF8F0, #FFF0E0)', borderRadius: 20, padding: '24px', cursor: 'pointer', border: '1.5px solid #F59E0B', position: 'relative', overflow: 'hidden' }}>
+          <div onClick={() => { setFlowType('home'); navigate('/book/home'); }} style={{ background: 'linear-gradient(135deg, #FFF8F0, #FFF0E0)', borderRadius: 20, padding: '24px', cursor: 'pointer', border: '1.5px solid #F59E0B', position: 'relative', overflow: 'hidden' }}>
             <div style={{ position: 'absolute', top: 12, right: 12, background: '#F59E0B', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 10 }}>Nouveau ✨</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
               <div style={{ width: 56, height: 56, borderRadius: 16, background: 'linear-gradient(135deg, #F59E0B, #D97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🏠</div>
@@ -755,7 +377,7 @@ export default function BookingFlow() {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
         <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 24px 32px' }}>
-          <button onClick={() => walkStep > 1 ? setWalkStep(s => s-1) : setFlowType(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
+          <button onClick={() => walkStep > 1 ? setWalkStep(walkStep - 1) : setFlowType(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
           <div style={{ fontSize: 28, marginBottom: 8 }}>{walkStep === 1 ? '📍' : walkStep === 2 ? '🐾' : walkStep === 3 ? '🎯' : '✅'}</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', marginBottom: 6 }}>{walkStep === 1 ? 'Où ?' : walkStep === 2 ? 'Quel(s) chien(s) ?' : walkStep === 3 ? 'Quel service ?' : 'Récapitulatif'}</h1>
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>Étape {walkStep} sur 4</p>
@@ -768,17 +390,14 @@ export default function BookingFlow() {
             <div>
               <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 20 }}>
                 {[{id:'now',label:'⚡ Le plus tôt possible'},{id:'later',label:'📅 Planifier'}].map(m => (
-                  <button key={m.id} onClick={() => setWalkMode(m.id)}
-                    style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: walkMode === m.id ? '#fff' : 'transparent', color: walkMode === m.id ? '#1D9E75' : '#888', boxShadow: walkMode === m.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>{m.label}</button>
+                  <button key={m.id} onClick={() => setWalkMode(m.id)} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: walkMode === m.id ? '#fff' : 'transparent', color: walkMode === m.id ? '#1D9E75' : '#888', boxShadow: walkMode === m.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>{m.label}</button>
                 ))}
               </div>
-              <button onClick={() => handleLocate(setWalkAddress)} disabled={locating}
-                style={{ width: '100%', padding: '12px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
+              <button onClick={() => handleLocate(setWalkAddress)} disabled={locating} style={{ width: '100%', padding: '12px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
                 {locating ? '📡 Localisation en cours...' : '📍 Utiliser ma position actuelle'}
               </button>
               <label style={labelStyle}>Ou entrez votre adresse</label>
-              <input ref={addressRef} style={inputStyle} placeholder="12 rue de la Paix, Paris 75001"
-                value={walkAddress} onChange={e => { setWalkAddress(e.target.value); localStorage.setItem('dogger_walk_address', e.target.value); }} />
+              <input ref={addressRef} style={inputStyle} placeholder="12 rue de la Paix, Paris 75001" value={walkAddress} onChange={e => setWalkAddress(e.target.value)} />
               {walkMode === 'later' && (
                 <>
                   <label style={labelStyle}>Date</label>
@@ -786,15 +405,13 @@ export default function BookingFlow() {
                   <label style={labelStyle}>Heure</label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
                     {TIMES.map(t => (
-                      <div key={t} onClick={() => setWalkTime(t)}
-                        style={{ padding: '10px 4px', textAlign: 'center', borderRadius: 10, border: walkTime === t ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkTime === t ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 13, fontWeight: walkTime === t ? 700 : 400, color: walkTime === t ? '#0F6E56' : '#555' }}>{t}</div>
+                      <div key={t} onClick={() => setWalkTime(t)} style={{ padding: '10px 4px', textAlign: 'center', borderRadius: 10, border: walkTime === t ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkTime === t ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 13, fontWeight: walkTime === t ? 700 : 400, color: walkTime === t ? '#0F6E56' : '#555' }}>{t}</div>
                     ))}
                   </div>
                   <label style={labelStyle}>⏱️ Durée</label>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
                     {DURATIONS.map(d => (
-                      <div key={d.id} onClick={() => setWalkDuration(d.id)}
-                        style={{ padding: '10px 16px', borderRadius: 12, border: walkDuration === d.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkDuration === d.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 14, fontWeight: walkDuration === d.id ? 700 : 400, color: walkDuration === d.id ? '#0F6E56' : '#555' }}>{d.label}</div>
+                      <div key={d.id} onClick={() => setWalkDuration(d.id)} style={{ padding: '10px 16px', borderRadius: 12, border: walkDuration === d.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkDuration === d.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 14, fontWeight: walkDuration === d.id ? 700 : 400, color: walkDuration === d.id ? '#0F6E56' : '#555' }}>{d.label}</div>
                     ))}
                   </div>
                 </>
@@ -818,8 +435,7 @@ export default function BookingFlow() {
                     {userDogs.map(d => {
                       const isSel = selectedDogs.includes(d.id);
                       return (
-                        <div key={d.id} onClick={() => toggleDog(d.id)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px', borderRadius: 16, border: isSel ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: isSel ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer' }}>
+                        <div key={d.id} onClick={() => toggleDog(d.id)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px', borderRadius: 16, border: isSel ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: isSel ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer' }}>
                           {d.photo_url ? <img src={d.photo_url} alt={d.name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>{SIZE_ICONS[d.size] || '🐕'}</div>}
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>{d.name}</div>
@@ -840,8 +456,7 @@ export default function BookingFlow() {
               <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Le tarif est adapté au gabarit de votre chien</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
                 {WALK_SERVICES.map(s => (
-                  <div key={s.id} onClick={() => setWalkService(s.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px', borderRadius: 16, border: walkService === s.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkService === s.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', position: 'relative' }}>
+                  <div key={s.id} onClick={() => setWalkService(s.id)} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px', borderRadius: 16, border: walkService === s.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkService === s.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', position: 'relative' }}>
                     {s.popular && <span style={{ position: 'absolute', top: 10, right: 10, background: '#1D9E75', color: '#fff', fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>Populaire</span>}
                     <span style={{ fontSize: 32 }}>{s.icon}</span>
                     <div style={{ flex: 1 }}>
@@ -857,8 +472,7 @@ export default function BookingFlow() {
                   <label style={labelStyle}>⏱️ Durée</label>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
                     {DURATIONS.map(d => (
-                      <div key={d.id} onClick={() => setWalkDuration(d.id)}
-                        style={{ padding: '10px 16px', borderRadius: 12, border: walkDuration === d.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkDuration === d.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 14, fontWeight: walkDuration === d.id ? 700 : 400, color: walkDuration === d.id ? '#0F6E56' : '#555' }}>{d.label}</div>
+                      <div key={d.id} onClick={() => setWalkDuration(d.id)} style={{ padding: '10px 16px', borderRadius: 12, border: walkDuration === d.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: walkDuration === d.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 14, fontWeight: walkDuration === d.id ? 700 : 400, color: walkDuration === d.id ? '#0F6E56' : '#555' }}>{d.label}</div>
                     ))}
                   </div>
                 </>
@@ -909,7 +523,7 @@ export default function BookingFlow() {
             setError('');
             if (walkStep === 1 && !walkAddress) { setError('Entrez votre adresse'); return; }
             if (walkStep === 2 && selectedDogs.length === 0) { setError('Sélectionnez au moins un chien'); return; }
-            if (walkStep < 4) setWalkStep(s => s + 1);
+            if (walkStep < 4) setWalkStep(walkStep + 1);
             else confirmSearch();
           }} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>
             {walkStep === 1 ? 'Choisir mes chiens →' : walkStep === 2 ? 'Choisir un service →' : walkStep === 3 ? 'Voir le récapitulatif →' : '⚡ Trouver un promeneur maintenant'}
@@ -924,7 +538,7 @@ export default function BookingFlow() {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
         <div style={{ background: 'linear-gradient(160deg, #D97706, #F59E0B)', padding: '48px 24px 32px' }}>
-          <button onClick={() => homeStep > 1 ? setHomeStep(s => s-1) : setFlowType(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
+          <button onClick={() => homeStep > 1 ? setHomeStep(homeStep - 1) : setFlowType(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
           <div style={{ fontSize: 28, marginBottom: 8 }}>🏠</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Dogger Home</h1>
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)', marginBottom: 6 }}>
@@ -936,23 +550,19 @@ export default function BookingFlow() {
           <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 6 }}>Étape {homeStep} sur 5</p>
         </div>
         <div style={{ padding: '24px 20px' }}>
-
           {homeStep === 1 && (
             <div>
               <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#D97706', fontWeight: 500 }}>
                 ⚡ Le gardien viendra chercher votre chien chez vous en moins de 30 min
               </div>
-              <button onClick={() => handleLocate(setHomeAddress)} disabled={locating}
-                style={{ width: '100%', padding: '12px', background: '#FFFBF0', color: '#D97706', border: '1.5px solid #F59E0B', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
+              <button onClick={() => handleLocate(setHomeAddress)} disabled={locating} style={{ width: '100%', padding: '12px', background: '#FFFBF0', color: '#D97706', border: '1.5px solid #F59E0B', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
                 {locating ? '📡 Localisation en cours...' : '📍 Utiliser ma position actuelle'}
               </button>
               <label style={labelStyle}>Adresse de récupération</label>
-              <input ref={homeAddressRef} style={inputStyle} placeholder="12 rue de la Paix, Paris 75001"
-                value={homeAddress} onChange={e => { setHomeAddress(e.target.value); localStorage.setItem('dogger_walk_address', e.target.value); }} />
+              <input ref={homeAddressRef} style={inputStyle} placeholder="12 rue de la Paix, Paris 75001" value={homeAddress} onChange={e => setHomeAddress(e.target.value)} />
               <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 16 }}>
                 {[{id:'now',label:'⚡ Maintenant'},{id:'later',label:'📅 Planifier'}].map(m => (
-                  <button key={m.id} onClick={() => setHomeMode(m.id)}
-                    style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: homeMode === m.id ? '#fff' : 'transparent', color: homeMode === m.id ? '#D97706' : '#888', boxShadow: homeMode === m.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>{m.label}</button>
+                  <button key={m.id} onClick={() => setHomeMode(m.id)} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: homeMode === m.id ? '#fff' : 'transparent', color: homeMode === m.id ? '#D97706' : '#888', boxShadow: homeMode === m.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.2s', fontFamily: 'inherit' }}>{m.label}</button>
                 ))}
               </div>
               {homeMode === 'later' && (
@@ -960,15 +570,11 @@ export default function BookingFlow() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
                     <div>
                       <label style={{ ...labelStyle, color: '#D97706' }}>📅 Date de début</label>
-                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date"
-                        value={homeStartDate} min={new Date().toISOString().split('T')[0]}
-                        onChange={e => { setHomeStartDate(e.target.value); calcHomeDuration(e.target.value, homeEndDate, homeDepositTime, homePickupTime); }} />
+                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date" value={homeStartDate} min={new Date().toISOString().split('T')[0]} onChange={e => { setHomeStartDate(e.target.value); calcHomeDuration(e.target.value, homeEndDate, homeDepositTime, homePickupTime); }} />
                     </div>
                     <div>
                       <label style={{ ...labelStyle, color: '#D97706' }}>📅 Date de fin</label>
-                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date"
-                        value={homeEndDate} min={homeStartDate || new Date().toISOString().split('T')[0]}
-                        onChange={e => { setHomeEndDate(e.target.value); calcHomeDuration(homeStartDate, e.target.value, homeDepositTime, homePickupTime); }} />
+                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date" value={homeEndDate} min={homeStartDate || new Date().toISOString().split('T')[0]} onChange={e => { setHomeEndDate(e.target.value); calcHomeDuration(homeStartDate, e.target.value, homeDepositTime, homePickupTime); }} />
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -976,8 +582,7 @@ export default function BookingFlow() {
                       <label style={{ ...labelStyle, color: '#D97706' }}>🕐 Heure de dépôt</label>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         {DEPOSIT_TIMES.map(t => (
-                          <div key={t} onClick={() => { setHomeDepositTime(t); calcHomeDuration(homeStartDate, homeEndDate, t, homePickupTime); }}
-                            style={{ padding: '8px 4px', textAlign: 'center', borderRadius: 10, border: homeDepositTime === t ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: homeDepositTime === t ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer', fontSize: 12, fontWeight: homeDepositTime === t ? 700 : 400, color: homeDepositTime === t ? '#D97706' : '#555' }}>{t}</div>
+                          <div key={t} onClick={() => { setHomeDepositTime(t); calcHomeDuration(homeStartDate, homeEndDate, t, homePickupTime); }} style={{ padding: '8px 4px', textAlign: 'center', borderRadius: 10, border: homeDepositTime === t ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: homeDepositTime === t ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer', fontSize: 12, fontWeight: homeDepositTime === t ? 700 : 400, color: homeDepositTime === t ? '#D97706' : '#555' }}>{t}</div>
                         ))}
                       </div>
                     </div>
@@ -985,8 +590,7 @@ export default function BookingFlow() {
                       <label style={{ ...labelStyle, color: '#D97706' }}>🕐 Heure de reprise</label>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         {PICKUP_TIMES.map(t => (
-                          <div key={t} onClick={() => { setHomePickupTime(t); calcHomeDuration(homeStartDate, homeEndDate, homeDepositTime, t); }}
-                            style={{ padding: '8px 4px', textAlign: 'center', borderRadius: 10, border: homePickupTime === t ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: homePickupTime === t ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer', fontSize: 12, fontWeight: homePickupTime === t ? 700 : 400, color: homePickupTime === t ? '#D97706' : '#555' }}>{t}</div>
+                          <div key={t} onClick={() => { setHomePickupTime(t); calcHomeDuration(homeStartDate, homeEndDate, homeDepositTime, t); }} style={{ padding: '8px 4px', textAlign: 'center', borderRadius: 10, border: homePickupTime === t ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: homePickupTime === t ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer', fontSize: 12, fontWeight: homePickupTime === t ? 700 : 400, color: homePickupTime === t ? '#D97706' : '#555' }}>{t}</div>
                         ))}
                       </div>
                     </div>
@@ -1003,8 +607,7 @@ export default function BookingFlow() {
                   <label style={labelStyle}>⏱️ Durée de la garde</label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {HOME_DURATIONS.map(d => (
-                      <div key={d.id} onClick={() => setHomeDuration(d.id)}
-                        style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', borderRadius: 14, border: homeDuration === d.id ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: homeDuration === d.id ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
+                      <div key={d.id} onClick={() => setHomeDuration(d.id)} style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', borderRadius: 14, border: homeDuration === d.id ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: homeDuration === d.id ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 15, fontWeight: 700, color: homeDuration === d.id ? '#D97706' : '#1A1A1A' }}>{d.label}</div>
                           <div style={{ fontSize: 12, color: '#888' }}>{d.desc}</div>
@@ -1020,7 +623,6 @@ export default function BookingFlow() {
               <textarea style={textareaStyle} placeholder="Code porte, digicode, comportement particulier..." value={homeInstructions} onChange={e => setHomeInstructions(e.target.value)} />
             </div>
           )}
-
           {homeStep === 2 && (
             <div>
               <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Quel(s) chien(s) confier au gardien ?</p>
@@ -1036,8 +638,7 @@ export default function BookingFlow() {
                     {userDogs.map(d => {
                       const isSel = selectedDogs.includes(d.id);
                       return (
-                        <div key={d.id} onClick={() => toggleDog(d.id)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px', borderRadius: 16, border: isSel ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: isSel ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
+                        <div key={d.id} onClick={() => toggleDog(d.id)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px', borderRadius: 16, border: isSel ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: isSel ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
                           {d.photo_url ? <img src={d.photo_url} alt={d.name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#FFF8E1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>{SIZE_ICONS[d.size] || '🐕'}</div>}
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>{d.name}</div>
@@ -1053,8 +654,6 @@ export default function BookingFlow() {
               )}
             </div>
           )}
-
-          {/* Step 3 — Infos pratiques */}
           {homeStep === 3 && (
             <div>
               <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Ces infos aideront le gardien à prendre soin de votre chien</p>
@@ -1068,8 +667,6 @@ export default function BookingFlow() {
               <textarea style={{ ...textareaStyle, height: 60 }} placeholder="Laisse, jouets, couverture, gamelle..." value={homeAccessories} onChange={e => setHomeAccessories(e.target.value)} />
             </div>
           )}
-
-          {/* Step 4 — Choisir un gardien */}
           {homeStep === 4 && (
             <div>
               <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Gardiens disponibles près de vous</p>
@@ -1079,8 +676,7 @@ export default function BookingFlow() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {MOCK_WALKERS.filter(w => homeMode === 'now' ? w.available : w.id !== 4).map(w => (
-                  <div key={w.id} onClick={() => setSelectedHomeWalker(selectedHomeWalker?.id === w.id ? null : w)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 16, border: selectedHomeWalker?.id === w.id ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: selectedHomeWalker?.id === w.id ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
+                  <div key={w.id} onClick={() => setSelectedHomeWalker(selectedHomeWalker?.id === w.id ? null : w)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 16, border: selectedHomeWalker?.id === w.id ? '2px solid #F59E0B' : '1.5px solid #E8E8E8', background: selectedHomeWalker?.id === w.id ? '#FFF8E1' : '#FAFAFA', cursor: 'pointer' }}>
                     <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>{w.photo}</div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>{w.name}</div>
@@ -1109,7 +705,6 @@ export default function BookingFlow() {
               </div>
             </div>
           )}
-
           {homeStep === 5 && (
             <div>
               <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Vérifiez votre réservation</p>
@@ -1160,9 +755,7 @@ export default function BookingFlow() {
               </div>
             </div>
           )}
-
           {error && <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>⚠️ {error}</div>}
-
           <button
             style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(245,158,11,0.35)' }}
             onClick={() => {
@@ -1171,13 +764,12 @@ export default function BookingFlow() {
               if (homeStep === 1 && homeMode === 'later' && !homeStartDate) { setError('Choisissez une date de début'); return; }
               if (homeStep === 2 && selectedDogs.length === 0) { setError('Sélectionnez au moins un chien'); return; }
               if (homeStep === 4 && !selectedHomeWalker) { setError('Sélectionnez un gardien'); return; }
-              if (homeStep < 5) setHomeStep(s => s + 1);
+              if (homeStep < 5) setHomeStep(homeStep + 1);
               else confirmSearch();
             }}>
             {homeStep === 1 ? 'Choisir mes chiens →' : homeStep === 2 ? 'Informations pratiques →' : homeStep === 3 ? 'Choisir un gardien →' : homeStep === 4 ? 'Voir le récapitulatif →' : '⚡ Confirmer'}
           </button>
         </div>
-
         {showWalkerDetail && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100 }}>
             <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '28px 24px 40px', width: '100%', maxWidth: 430 }}>
@@ -1192,8 +784,7 @@ export default function BookingFlow() {
                 {showWalkerDetail.specialties.map(s => <span key={s} style={{ background: '#FFF8E1', color: '#D97706', fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20 }}>{s}</span>)}
               </div>
               {showWalkerDetail.available ? (
-                <button onClick={() => { setSelectedHomeWalker(showWalkerDetail); setShowWalkerDetail(null); }}
-                  style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 10 }}>
+                <button onClick={() => { setSelectedHomeWalker(showWalkerDetail); setShowWalkerDetail(null); }} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 10 }}>
                   ✅ Choisir {showWalkerDetail.name}
                 </button>
               ) : (

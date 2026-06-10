@@ -86,7 +86,10 @@ export default function BookingFlow() {
   const savedWalkerData = getSavedWalker();
   const isResuming = !!savedWalkerData && !!localStorage.getItem('dogger_walk_active');
 
-  const [flowType, setFlowType] = useState(null);
+  const [flowType, setFlowType] = useState(() => {
+    if (location.state?.type) return location.state.type;
+    return localStorage.getItem('dogger_flow_type') || null;
+  });
 
   useEffect(() => {
     if (location.state?.type === 'walk') {

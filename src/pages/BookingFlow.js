@@ -139,7 +139,10 @@ export default function BookingFlow() {
   const [searching, setSearching] = useState(false);
   const [searchStep, setSearchStep] = useState(0);
   const [matched, setMatched] = useState(isResuming);
-  const [walker, setWalker] = useState(getSavedWalker());
+  const [walker, setWalker] = useState(() => {
+    const hw = localStorage.getItem('dogger_home_walker');
+    return hw ? JSON.parse(hw) : getSavedWalker();
+  });
   const [dots, setDots] = useState([false, false, false]);
   const [walkerPhase, setWalkerPhase] = useState(getSavedPhase());
   const [etaSeconds, setEtaSeconds] = useState(getSavedEta());
@@ -155,7 +158,7 @@ export default function BookingFlow() {
   const [showChat, setShowChat] = useState(false);
 
   // Home confirmed
-  const [homeConfirmed, setHomeConfirmed] = useState(false);
+  const [homeConfirmed, setHomeConfirmed] = useState(!!localStorage.getItem('dogger_home_confirmed'));
   const [dogHandedOver, setDogHandedOver] = useState(false);
 
   const mapRef = useRef(null);
@@ -365,7 +368,7 @@ export default function BookingFlow() {
   const toggleDog = (id) => setSelectedDogs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const handleCancelConfirm = () => {
-    ['dogger_walk_active','dogger_walk_service','dogger_walk_start','dogger_walk_address','dogger_walker','dogger_walker_eta','dogger_walker_phase','dogger_walker_start_coords','dogger_flow_type'].forEach(k => localStorage.removeItem(k));
+    ['dogger_walk_active','dogger_walk_service','dogger_walk_start','dogger_walk_address','dogger_walker','dogger_walker_eta','dogger_walker_phase','dogger_walker_start_coords','dogger_flow_type','dogger_home_confirmed','dogger_home_walker'].forEach(k => localStorage.removeItem(k));
     navigate('/dashboard');
   };
 
@@ -411,9 +414,12 @@ export default function BookingFlow() {
     if (flowType === 'home' && homeMode === 'later') {
       const w = selectedHomeWalker ? { ...selectedHomeWalker, emoji: selectedHomeWalker.photo } : { name: 'Thomas M.', rating: 4.9, walks: 127, emoji: '🧑' };
       setWalker(w);
+      localStorage.setItem('dogger_home_confirmed', '1');
+      localStorage.setItem('dogger_home_walker', JSON.stringify(w));
       setHomeConfirmed(true);
       return;
     }
+    localStorage.setItem('dogger_home_confirmed', '1');
     setSearching(true);
   };
 

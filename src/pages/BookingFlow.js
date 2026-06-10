@@ -83,13 +83,12 @@ function formatDuration(minutes) {
 export default function BookingFlow() {
   const navigate = useNavigate();
   const location = useLocation();
-   const savedWalkerData = getSavedWalker();
+  const savedWalkerData = getSavedWalker();
   const isResuming = !!savedWalkerData && !!localStorage.getItem('dogger_walk_active');
 
   const [flowType, setFlowType] = useState(null);
 
-  // Lire ?type= depuis l'URL
-useEffect(() => {
+  useEffect(() => {
     if (location.state?.type === 'walk') setFlowType('walk');
     else if (location.state?.type === 'home') setFlowType('home');
   }, []);
@@ -238,7 +237,7 @@ useEffect(() => {
   }, [userCoords]);
 
   useEffect(() => {
-    if (flowType === 'home' && homeStep === 3 && walkerMapRef.current) {
+    if (flowType === 'home' && homeStep === 4 && walkerMapRef.current) {
       walkerMapInstanceRef.current = null;
       setTimeout(initWalkerMap, 400);
     }
@@ -392,9 +391,8 @@ useEffect(() => {
     return sec > 0 ? `${m} min ${sec}s` : `${m} min`;
   };
 
-const confirmSearch = () => {
+  const confirmSearch = () => {
     const addr = flowType === 'home' ? homeAddress : walkAddress;
-    // Ne pas sauvegarder comme balade active si c'est une garde planifiée
     if (!(flowType === 'home' && homeMode === 'later')) {
       localStorage.setItem('dogger_walk_active', String(flowType === 'home' ? homeDuration : walkDuration));
       localStorage.setItem('dogger_walk_start', String(Date.now()));
@@ -524,7 +522,6 @@ const confirmSearch = () => {
       );
     }
 
-    // Mode planifié
     if (homeMode === 'later') {
       return (
         <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto' }}>
@@ -559,7 +556,6 @@ const confirmSearch = () => {
       );
     }
 
-    // Mode maintenant — gardien en route
     const isArriving = walkerPhase === 'arriving';
     const isHere = walkerPhase === 'here';
     return (
@@ -633,7 +629,7 @@ const confirmSearch = () => {
           <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
           {!userCoords && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg, #E8F5F0, #D0EDE4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>🗺️</div>}
           <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', background: isHere ? '#1D9E75' : isArriving ? '#F59E0B' : '#fff', color: isHere || isArriving ? '#fff' : '#1D9E75', borderRadius: 20, padding: '8px 20px', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 12px rgba(0,0,0,0.15)', whiteSpace: 'nowrap', zIndex: 10, animation: isArriving || isHere ? 'pulse 1s infinite' : 'none' }}>
-            {isHere ? '🎉 Thomas est arrivé !' : isArriving ? '⚠️ Préparez-vous !' : `🚶 ${walker.name} arrive dans ${formatEta(etaSeconds)}`}
+            {isHere ? '🎉 Le promeneur est arrivé !' : isArriving ? '⚠️ Préparez-vous !' : `🚶 ${walker.name} arrive dans ${formatEta(etaSeconds)}`}
           </div>
         </div>
         <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
@@ -1002,12 +998,7 @@ const confirmSearch = () => {
                 </>
               )}
               <label style={{ ...labelStyle, marginTop: 16 }}>📝 Instructions pour le gardien (optionnel)</label>
-              <textarea
-                style={textareaStyle}
-                placeholder="Code porte, digicode, comportement particulier..."
-                value={homeInstructions}
-                onChange={e => setHomeInstructions(e.target.value)}
-              />
+              <textarea style={textareaStyle} placeholder="Code porte, digicode, comportement particulier..." value={homeInstructions} onChange={e => setHomeInstructions(e.target.value)} />
             </div>
           )}
 
@@ -1044,6 +1035,22 @@ const confirmSearch = () => {
             </div>
           )}
 
+          {/* Step 3 — Infos pratiques */}
+          {homeStep === 3 && (
+            <div>
+              <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Ces infos aideront le gardien à prendre soin de votre chien</p>
+              <label style={labelStyle}>🍽️ Alimentation</label>
+              <textarea style={textareaStyle} placeholder="Quantité, fréquence, marque de croquettes, allergies..." value={homeFoodInfo} onChange={e => setHomeFoodInfo(e.target.value)} />
+              <label style={labelStyle}>💊 Médicaments (optionnel)</label>
+              <textarea style={{ ...textareaStyle, height: 60 }} placeholder="Nom, dosage, fréquence..." value={homeMedInfo} onChange={e => setHomeMedInfo(e.target.value)} />
+              <label style={labelStyle}>🐕 Comportement & habitudes</label>
+              <textarea style={textareaStyle} placeholder="Câlin, joueur, peureux, dort où, heure de sortie..." value={homeBehaviorInfo} onChange={e => setHomeBehaviorInfo(e.target.value)} />
+              <label style={labelStyle}>🎒 Accessoires à apporter (optionnel)</label>
+              <textarea style={{ ...textareaStyle, height: 60 }} placeholder="Laisse, jouets, couverture, gamelle..." value={homeAccessories} onChange={e => setHomeAccessories(e.target.value)} />
+            </div>
+          )}
+
+          {/* Step 4 — Choisir un gardien */}
           {homeStep === 4 && (
             <div>
               <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Gardiens disponibles près de vous</p>
@@ -1081,20 +1088,6 @@ const confirmSearch = () => {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {homeStep === 3 && (
-            <div>
-              <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Ces infos aideront le gardien à prendre soin de votre chien</p>
-              <label style={labelStyle}>🍽️ Alimentation</label>
-              <textarea style={textareaStyle} placeholder="Quantité, fréquence, marque de croquettes, allergies..." value={homeFoodInfo} onChange={e => setHomeFoodInfo(e.target.value)} />
-              <label style={labelStyle}>💊 Médicaments (optionnel)</label>
-              <textarea style={{ ...textareaStyle, height: 60 }} placeholder="Nom, dosage, fréquence..." value={homeMedInfo} onChange={e => setHomeMedInfo(e.target.value)} />
-              <label style={labelStyle}>🐕 Comportement & habitudes</label>
-              <textarea style={textareaStyle} placeholder="Câlin, joueur, peureux, dort où, heure de sortie..." value={homeBehaviorInfo} onChange={e => setHomeBehaviorInfo(e.target.value)} />
-              <label style={labelStyle}>🎒 Accessoires à apporter (optionnel)</label>
-              <textarea style={{ ...textareaStyle, height: 60 }} placeholder="Laisse, jouets, couverture, gamelle..." value={homeAccessories} onChange={e => setHomeAccessories(e.target.value)} />
             </div>
           )}
 

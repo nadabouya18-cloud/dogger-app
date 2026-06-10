@@ -913,7 +913,7 @@ const confirmSearch = () => {
           <div style={{ fontSize: 28, marginBottom: 8 }}>🏠</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Dogger Home</h1>
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)', marginBottom: 6 }}>
-            {homeStep === 1 ? '📍 Adresse & durée' : homeStep === 2 ? '🐾 Quel(s) chien(s) ?' : homeStep === 3 ? '👤 Choisir un gardien' : homeStep === 4 ? '📝 Infos pratiques' : '✅ Récapitulatif'}
+            {homeStep === 1 ? '📍 Adresse & durée' : homeStep === 2 ? '🐾 Quel(s) chien(s) ?' : homeStep === 3 ? '📝 Infos pratiques' : homeStep === 4 ? '👤 Choisir un gardien' : '✅ Récapitulatif'}
           </p>
           <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 10, height: 4 }}>
             <div style={{ width: `${(homeStep/5)*100}%`, background: '#fff', borderRadius: 10, height: 4, transition: 'width 0.3s' }} />
@@ -1044,7 +1044,7 @@ const confirmSearch = () => {
             </div>
           )}
 
-          {homeStep === 3 && (
+          {homeStep === 4 && (
             <div>
               <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Gardiens disponibles près de vous</p>
               <div style={{ position: 'relative', marginBottom: 16 }}>
@@ -1084,7 +1084,7 @@ const confirmSearch = () => {
             </div>
           )}
 
-          {homeStep === 4 && (
+          {homeStep === 3 && (
             <div>
               <p style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>Ces infos aideront le gardien à prendre soin de votre chien</p>
               <label style={labelStyle}>🍽️ Alimentation</label>
@@ -1158,11 +1158,11 @@ const confirmSearch = () => {
               if (homeStep === 1 && !homeAddress) { setError('Entrez votre adresse'); return; }
               if (homeStep === 1 && homeMode === 'later' && !homeStartDate) { setError('Choisissez une date de début'); return; }
               if (homeStep === 2 && selectedDogs.length === 0) { setError('Sélectionnez au moins un chien'); return; }
-              if (homeStep === 3 && !selectedHomeWalker) { setError('Sélectionnez un gardien'); return; }
+              if (homeStep === 4 && !selectedHomeWalker) { setError('Sélectionnez un gardien'); return; }
               if (homeStep < 5) setHomeStep(s => s + 1);
               else confirmSearch();
             }}>
-            {homeStep === 1 ? 'Choisir mes chiens →' : homeStep === 2 ? 'Choisir un gardien →' : homeStep === 3 ? 'Informations pratiques →' : homeStep === 4 ? 'Voir le récapitulatif →' : '⚡ Confirmer'}
+            {homeStep === 1 ? 'Choisir mes chiens →' : homeStep === 2 ? 'Informations pratiques →' : homeStep === 3 ? 'Choisir un gardien →' : homeStep === 4 ? 'Voir le récapitulatif →' : '⚡ Confirmer'}
           </button>
         </div>
 

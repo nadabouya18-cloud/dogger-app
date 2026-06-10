@@ -1,396 +1,49 @@
-import React, { useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { supabase } from '../supabase';
-import useBookingStore from '../store/bookingStore';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Home from './pages/Home';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
+import BookingFlow from './pages/BookingFlow';
+import WalkerHome from './pages/WalkerHome';
+import AddDog from './pages/AddDog';
+import { supabase } from './supabase';
 
-const WALK_SERVICES = [
-  { id: 'walk',   icon: '🐕',  name: 'Balade',           desc: 'Promenade dans le quartier',   pricePerMin: 0.42, popular: false },
-  { id: 'shared', icon: '🐕‍🦺', name: 'Balade Shared',    desc: 'Balade en groupe économique',  pricePerMin: 0.25, popular: true  },
-  { id: 'parc',   icon: '🌳',  name: 'Dogger Parc',      desc: 'Session de jeu en parc canin', pricePerMin: 0.35, popular: false },
-];
-
-const DURATIONS = [
-  { id: 15, label: '15 min' }, { id: 30, label: '30 min' },
-  { id: 45, label: '45 min' }, { id: 60, label: '1h' },
-  { id: 90, label: '1h30' },   { id: 120, label: '2h' },
-];
-
-const HOME_DURATIONS = [
-  { id: 300,   label: '5h',        desc: 'Demi-journée', price: 35  },
-  { id: 720,   label: '12h',       desc: 'Journée',      price: 55  },
-  { id: 1440,  label: '1 jour',    desc: '24h',          price: 75  },
-  { id: 2880,  label: '2 jours',   desc: '48h',          price: 140 },
-  { id: 4320,  label: '3 jours',   desc: '72h',          price: 195 },
-  { id: 10080, label: '1 semaine', desc: '7 jours',      price: 399 },
-];
-
-const MOCK_WALKERS = [
-  { id: 1, name: 'Thomas M.', rating: 4.9, walks: 127, lat: 48.8576, lng: 2.3532, price: 13, bio: "Passionné par les animaux, 3 ans d'expérience", specialties: ['Petits gabarits', 'Seniors'], photo: '🧑', available: true, dist: '320m', eta: '8 min' },
-  { id: 2, name: 'Julie R.',  rating: 4.8, walks: 89,  lat: 48.8556, lng: 2.3512, price: 12, bio: 'Vétérinaire en formation, douce et attentionnée', specialties: ['Tous gabarits', 'Chiots'], photo: '👩', available: true, dist: '450m', eta: '10 min' },
-  { id: 3, name: 'Karim B.',  rating: 4.7, walks: 64,  lat: 48.8596, lng: 2.3552, price: 11, bio: 'Sportif, idéal pour les chiens énergiques', specialties: ['Grands gabarits', 'Sport'], photo: '🧔', available: true, dist: '600m', eta: '12 min' },
-  { id: 4, name: 'Sophie L.', rating: 5.0, walks: 203, lat: 48.8546, lng: 2.3572, price: 15, bio: "Professionnelle certifiée, 5 ans d'expérience", specialties: ['Tous gabarits', 'Garde'], photo: '👱‍♀️', available: false, dist: '200m', eta: '5 min' },
-  { id: 5, name: 'Marc D.',   rating: 4.6, walks: 45,  lat: 48.8586, lng: 2.3492, price: 10, bio: 'Retraité passionné, beaucoup de disponibilité', specialties: ['Petits gabarits'], photo: '👴', available: true, dist: '750m', eta: '15 min' },
-];
-
-const TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
-const DEPOSIT_TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00'];
-const PICKUP_TIMES  = ['14:00','15:00','16:00','17:00','18:00','19:00'];
-
-const SEARCH_STEPS = [
-  '🔍 Recherche de gardiens à proximité...',
-  '📡 Vérification des disponibilités...',
-  '🐾 3 gardiens disponibles trouvés !',
-  '📲 Envoi de la demande...',
-  '✅ Mise en relation en cours...',
-];
-
-const WALK_SEARCH_STEPS = [
-  '🔍 Recherche de promeneurs à proximité...',
-  '📡 Analyse de votre zone...',
-  '🐾 3 promeneurs disponibles trouvés !',
-  '📲 Envoi de la demande...',
-  '✅ Mise en relation en cours...',
-];
-
-const CANCEL_REASONS = [
-  "Je me suis trompé d'adresse",
-  "Je me suis trompé de durée",
-  "Le promeneur n'avance pas",
-  "Mon chien n'est plus disponible",
-  "J'ai trouvé une autre solution",
-  "Autre raison",
-];
-
-const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
-
-function formatDuration(minutes) {
-  if (minutes >= 1440) {
-    const days = Math.floor(minutes / 1440);
-    return `${days} jour${days > 1 ? 's' : ''}`;
-  }
-  if (minutes >= 60) {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return m > 0 ? `${h}h${m}` : `${h}h`;
-  }
-  return `${minutes} min`;
+function ProtectedRoute({ children }) {
+  const [session, setSession] = React.useState(undefined);
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+  }, []);
+  if (session === undefined) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }}>
+      <div style={{ fontSize: 48 }}>🐾</div>
+    </div>
+  );
+  if (!session) return <Navigate to="/login" />;
+  return children;
 }
 
-export default function BookingFlow() {
-  const navigate = useNavigate();
-  const { flowType: urlFlowType } = useParams();
-
-  const {
-    flowType, setFlowType,
-    walkStep, setWalkStep, walkService, setWalkService,
-    walkDuration, setWalkDuration, walkMode, setWalkMode,
-    walkAddress, setWalkAddress, walkDate, setWalkDate,
-    walkTime, setWalkTime, walkInstructions, setWalkInstructions,
-    homeStep, setHomeStep, homeMode, setHomeMode,
-    homeDuration, setHomeDuration, homeAddress, setHomeAddress,
-    homeStartDate, setHomeStartDate, homeEndDate, setHomeEndDate,
-    homeDepositTime, setHomeDepositTime, homePickupTime, setHomePickupTime,
-    homeFoodInfo, setHomeFoodInfo, homeMedInfo, setHomeMedInfo,
-    homeBehaviorInfo, setHomeBehaviorInfo, homeAccessories, setHomeAccessories,
-    homeInstructions, setHomeInstructions,
-    selectedHomeWalker, setSelectedHomeWalker,
-    homeConfirmed, setHomeConfirmed,
-    dogHandedOver, setDogHandedOver,
-    walker, setWalker, walkerPhase, setWalkerPhase,
-    etaSeconds, setEtaSeconds, matched, setMatched,
-    searching, setSearching, userCoords, setUserCoords,
-    selectedDogs, setSelectedDogs,
-    resetBooking,
-  } = useBookingStore();
-
-  const [userDogs, setUserDogs] = React.useState([]);
-  const [error, setError] = React.useState('');
-  const [locating, setLocating] = React.useState(false);
-  const [dots, setDots] = React.useState([false, false, false]);
-  const [searchStep, setSearchStep] = React.useState(0);
-  const [routePath, setRoutePath] = React.useState([]);
-  const [showCancel, setShowCancel] = React.useState(false);
-  const [cancelReason, setCancelReason] = React.useState('');
-  const [messages, setMessages] = React.useState([
-    { id: 1, from: 'walker', text: "Bonjour ! J'ai bien reçu votre demande 🐾", time: 'maintenant' }
-  ]);
-  const [newMessage, setNewMessage] = React.useState('');
-  const [showChat, setShowChat] = React.useState(false);
-  const [showWalkerDetail, setShowWalkerDetail] = React.useState(null);
-
-  const mapRef = useRef(null);
-  const walkerMapRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const walkerMapInstanceRef = useRef(null);
-  const walkerMarkerRef = useRef(null);
-  const addressRef = useRef(null);
-  const homeAddressRef = useRef(null);
-  const chatEndRef = useRef(null);
-
-  // Initialiser flowType depuis l'URL
-  useEffect(() => {
-    if (urlFlowType === 'walk' || urlFlowType === 'home') {
-      setFlowType(urlFlowType);
-    }
-  }, [urlFlowType, setFlowType]);
-
-  // Charger les chiens
-  useEffect(() => {
-    const loadDogs = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const { data } = await supabase.from('dogs').select('*').eq('owner_id', session.user.id);
-      if (data) {
-        setUserDogs(data);
-        if (data.length === 1 && selectedDogs.length === 0) setSelectedDogs([data[0].id]);
-      }
-    };
-    loadDogs();
-  }, []);
-
-  // Autocomplete walk
-  useEffect(() => {
-    if (flowType !== 'walk' || walkStep !== 1 || !window.google) return;
-    const input = addressRef.current;
-    if (!input) return;
-    const ac = new window.google.maps.places.Autocomplete(input, { types: ['address'], componentRestrictions: { country: 'fr' } });
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace();
-      if (place.formatted_address) setWalkAddress(place.formatted_address);
-      if (place.geometry?.location) {
-        setUserCoords({ lat: place.geometry.location.lat(), lng: place.geometry.location.lng() });
-      }
-    });
-  }, [flowType, walkStep]);
-
-  // Autocomplete home
-  useEffect(() => {
-    if (flowType !== 'home' || homeStep !== 1 || !window.google) return;
-    const input = homeAddressRef.current;
-    if (!input) return;
-    const ac = new window.google.maps.places.Autocomplete(input, { types: ['address'], componentRestrictions: { country: 'fr' } });
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace();
-      if (place.formatted_address) setHomeAddress(place.formatted_address);
-      if (place.geometry?.location) {
-        setUserCoords({ lat: place.geometry.location.lat(), lng: place.geometry.location.lng() });
-      }
-    });
-  }, [flowType, homeStep]);
-
-  // Carte gardiens
-  const initWalkerMap = useCallback(() => {
-    if (!walkerMapRef.current || !window.google || walkerMapInstanceRef.current) return;
-    const center = userCoords || { lat: 48.8566, lng: 2.3522 };
-    const map = new window.google.maps.Map(walkerMapRef.current, {
-      center, zoom: 15, disableDefaultUI: true,
-      styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
-    });
-    walkerMapInstanceRef.current = map;
-    MOCK_WALKERS.forEach(w => {
-      const marker = new window.google.maps.Marker({
-        position: { lat: w.lat, lng: w.lng }, map,
-        icon: { url: w.available ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png' : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png', scaledSize: new window.google.maps.Size(36, 36) },
-        title: w.name
-      });
-      marker.addListener('click', () => setShowWalkerDetail(w));
-    });
-    new window.google.maps.Marker({ position: center, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) }, title: 'Vous' });
-    setTimeout(() => { window.google.maps.event.trigger(map, 'resize'); map.setCenter(center); }, 200);
-  }, [userCoords]);
-
-  useEffect(() => {
-    if (flowType === 'home' && homeStep === 4 && walkerMapRef.current) {
-      walkerMapInstanceRef.current = null;
-      setTimeout(initWalkerMap, 400);
-    }
-  }, [flowType, homeStep, initWalkerMap]);
-
-  // Carte promeneur en route
-  const initMap = useCallback(() => {
-    if (!mapRef.current || !window.google || !userCoords || mapInstanceRef.current) return;
-    mapRef.current.style.height = '320px';
-    const map = new window.google.maps.Map(mapRef.current, {
-      center: userCoords, zoom: 15, disableDefaultUI: true,
-      styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
-    });
-    mapInstanceRef.current = map;
-    setTimeout(() => { window.google.maps.event.trigger(map, 'resize'); map.setCenter(userCoords); }, 200);
-    new window.google.maps.Marker({ position: userCoords, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new window.google.maps.Size(40, 40) } });
-    const startCoords = { lat: userCoords.lat + (Math.random() - 0.5) * 0.008, lng: userCoords.lng + (Math.random() - 0.5) * 0.008 };
-    const wm = new window.google.maps.Marker({ position: startCoords, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) } });
-    walkerMarkerRef.current = wm;
-    const ds = new window.google.maps.DirectionsService();
-    const dr = new window.google.maps.DirectionsRenderer({ map, suppressMarkers: true, polylineOptions: { strokeColor: '#1D9E75', strokeWeight: 4 } });
-    ds.route({ origin: startCoords, destination: userCoords, travelMode: window.google.maps.TravelMode.WALKING }, (result, status) => {
-      if (status === 'OK') {
-        dr.setDirections(result);
-        setRoutePath(result.routes[0].overview_path);
-        const dur = result.routes[0].legs[0].duration.value;
-        setEtaSeconds(dur);
-      }
-    });
-  }, [userCoords]);
-
-  useEffect(() => {
-    if (matched && userCoords && mapRef.current) setTimeout(initMap, 400);
-  }, [matched, userCoords, initMap]);
-
-  // Animation walker sur la carte
-  useEffect(() => {
-    if (!matched || walkerPhase === 'here' || routePath.length === 0) return;
-    const totalSteps = routePath.length;
-    const msPerStep = etaSeconds > 0 ? (etaSeconds * 1000) / totalSteps : 1000;
-    const interval = setInterval(() => {
-      setRoutePath(prev => {
-        if (walkerMarkerRef.current && prev.length > 1) {
-          walkerMarkerRef.current.setPosition(prev[1]);
-          return prev.slice(1);
-        }
-        return prev;
-      });
-    }, Math.max(msPerStep, 800));
-    return () => clearInterval(interval);
-  }, [matched, walkerPhase, routePath.length, etaSeconds]);
-
-  // Countdown ETA
-  useEffect(() => {
-    if (!matched || walkerPhase === 'here') return;
-    const interval = setInterval(() => {
-      setEtaSeconds(s => {
-        const next = s - 1;
-        if (next <= 120 && next > 0 && walkerPhase !== 'arriving' && walkerPhase !== 'here') {
-          setWalkerPhase('arriving');
-        }
-        if (next <= 0) {
-          setWalkerPhase('here');
-          clearInterval(interval);
-          return 0;
-        }
-        return next;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [matched, walkerPhase]);
-
-  // Animation recherche
-  useEffect(() => {
-    if (!searching) return;
-    let i = 0;
-    const steps = flowType === 'home' ? SEARCH_STEPS : WALK_SEARCH_STEPS;
-    const interval = setInterval(() => {
-      setSearchStep(i); i++;
-      if (i >= steps.length) {
-        clearInterval(interval);
-        setTimeout(() => {
-          const w = flowType === 'home' && selectedHomeWalker
-            ? { ...selectedHomeWalker, emoji: selectedHomeWalker.photo }
-            : { name: 'Thomas M.', rating: 4.9, walks: 127, emoji: '🧑' };
-          setWalker(w);
-          setWalkerPhase('incoming');
-          setEtaSeconds(480);
-          setMatched(true);
-          setSearching(false);
-          if (flowType === 'home') setHomeConfirmed(true);
-        }, 800);
-      }
-    }, 900);
-    return () => clearInterval(interval);
-  }, [searching, flowType, selectedHomeWalker]);
-
-  useEffect(() => {
-    if (!searching) return;
-    const interval = setInterval(() => {
-      setDots(d => { const n=[...d]; const i=n.indexOf(false); if(i===-1) return [false,false,false]; n[i]=true; return n; });
-    }, 300);
-    return () => clearInterval(interval);
-  }, [searching]);
-
-  useEffect(() => {
-    if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, showChat]);
-
-  const toggleDog = (id) => setSelectedDogs(
-    selectedDogs.includes(id) ? selectedDogs.filter(x => x !== id) : [...selectedDogs, id]
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/book" element={<ProtectedRoute><BookingFlow /></ProtectedRoute>} />
+        <Route path="/book/:flowType" element={<ProtectedRoute><BookingFlow /></ProtectedRoute>} />
+        <Route path="/book/:flowType/:step" element={<ProtectedRoute><BookingFlow /></ProtectedRoute>} />
+        <Route path="/walker" element={<WalkerHome />} />
+        <Route path="/add-dog" element={<ProtectedRoute><AddDog /></ProtectedRoute>} />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </BrowserRouter>
   );
-
-  const goToDashboard = () => {
-    resetBooking();
-    navigate('/dashboard');
-  };
-
-  const handleCancelConfirm = () => {
-    resetBooking();
-    navigate('/dashboard');
-  };
-
-  const startWalk = () => {
-    if (flowType === 'home') setHomeConfirmed(true);
-    else navigate('/dashboard');
-  };
-
-  const confirmHandover = () => {
-    setDogHandedOver(true);
-  };
-
-  const sendMessage = () => {
-    if (!newMessage.trim()) return;
-    setMessages(m => [...m, { id: Date.now(), from: 'owner', text: newMessage, time: 'maintenant' }]);
-    setNewMessage('');
-    setTimeout(() => {
-      const r = ["Parfait, je note ! 🐾","Bien reçu, merci !","Je serai là dans quelques minutes 🚶","Votre chien est adorable !","Ne vous inquiétez pas 🐕"];
-      setMessages(m => [...m, { id: Date.now()+1, from: 'walker', text: r[Math.floor(Math.random()*r.length)], time: 'maintenant' }]);
-    }, 1500);
-  };
-
-  const formatEta = (s) => {
-    if (s <= 0) return 'quelques secondes';
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    if (m === 0) return `${sec}s`;
-    return sec > 0 ? `${m} min ${sec}s` : `${m} min`;
-  };
-
-  const calcHomeDuration = (startDate, endDate, depositTime, pickupTime) => {
-    if (!startDate) return;
-    if (startDate === endDate && depositTime && pickupTime) {
-      const [sh, sm] = depositTime.split(':').map(Number);
-      const [eh, em] = pickupTime.split(':').map(Number);
-      const diff = (eh * 60 + em) - (sh * 60 + sm);
-      if (diff > 0) setHomeDuration(diff);
-    } else if (endDate && startDate < endDate) {
-      const start = new Date(`${startDate}T${depositTime || '08:00'}`);
-      const end   = new Date(`${endDate}T${pickupTime || '18:00'}`);
-      const diff  = Math.round((end - start) / 60000);
-      if (diff > 0) setHomeDuration(diff);
-    }
-  };
-
-  const handleLocate = (setAddr) => {
-    if (!navigator.geolocation) { setError('Géolocalisation non supportée'); return; }
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      try {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        setUserCoords({ lat, lng });
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, { headers: { 'Accept-Language': 'fr' } });
-        const data = await res.json();
-        if (data.address) {
-          const a = data.address;
-          const addr = [a.house_number, a.road, a.postcode, a.city || a.town || a.village].filter(Boolean).join(', ') || data.display_name;
-          setAddr(addr);
-        }
-      } catch (e) { setError('Impossible de récupérer votre adresse'); }
-      finally { setLocating(false); }
-    }, () => { setLocating(false); }, { timeout: 10000, enableHighAccuracy: true });
-  };
-
-  const confirmSearch = () => {
-    if (flowType === 'home' && homeMode === 'later') {
-      const w = selectedHomeWalker
-        ? { ...selectedHomeWalker, emoji: selectedHomeWalker.photo }
-        : { name: 'Thomas M.', rating: 4.9, walks: 127, emoji: '🧑' };
-      setWalker(w);
+}
+Confirmed(true);
       setHomeConfirmed(true);
       return;
     }

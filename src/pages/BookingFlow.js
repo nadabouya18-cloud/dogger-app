@@ -89,8 +89,16 @@ export default function BookingFlow() {
   const [flowType, setFlowType] = useState(null);
 
   useEffect(() => {
-    if (location.state?.type === 'walk') setFlowType('walk');
-    else if (location.state?.type === 'home') setFlowType('home');
+    if (location.state?.type === 'walk') {
+      setFlowType('walk');
+      localStorage.setItem('dogger_flow_type', 'walk');
+    } else if (location.state?.type === 'home') {
+      setFlowType('home');
+      localStorage.setItem('dogger_flow_type', 'home');
+    } else {
+      const saved = localStorage.getItem('dogger_flow_type');
+      if (saved) setFlowType(saved);
+    }
   }, []);
 
   // Walk
@@ -357,7 +365,7 @@ export default function BookingFlow() {
   const toggleDog = (id) => setSelectedDogs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const handleCancelConfirm = () => {
-    ['dogger_walk_active','dogger_walk_service','dogger_walk_start','dogger_walk_address','dogger_walker','dogger_walker_eta','dogger_walker_phase','dogger_walker_start_coords'].forEach(k => localStorage.removeItem(k));
+    ['dogger_walk_active','dogger_walk_service','dogger_walk_start','dogger_walk_address','dogger_walker','dogger_walker_eta','dogger_walker_phase','dogger_walker_start_coords','dogger_flow_type'].forEach(k => localStorage.removeItem(k));
     navigate('/dashboard');
   };
 

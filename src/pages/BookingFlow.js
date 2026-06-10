@@ -83,7 +83,8 @@ function formatDuration(minutes) {
 export default function BookingFlow() {
   const navigate = useNavigate();
   const location = useLocation();
-  const isResuming = !!getSavedWalker();
+   const savedWalkerData = getSavedWalker();
+  const isResuming = !!savedWalkerData && !!localStorage.getItem('dogger_walk_active');
 
   const [flowType, setFlowType] = useState(null);
 

@@ -130,11 +130,13 @@ export default function BookingFlow() {
   // Initialiser flowType depuis l'URL
   useEffect(() => {
     if (urlFlowType === 'walk' || urlFlowType === 'home') {
-      // Nouveau booking — reset complet du state précédent
       if (!homeConfirmed && !matched) {
         resetBooking();
       }
       setFlowType(urlFlowType);
+    } else if (!urlFlowType) {
+      // On arrive sur /book sans flowType — reset systématique
+      resetBooking();
     }
   }, [urlFlowType]);
 

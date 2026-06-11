@@ -91,7 +91,7 @@ const useBookingStore = create(
       }),
     }),
     {
-      name: 'dogger-booking',
+      name: 'dogger-booking-v2',
       storage: createJSONStorage(() => sessionStorage),
       partialize: (state) => ({
         homeConfirmed: state.homeConfirmed,

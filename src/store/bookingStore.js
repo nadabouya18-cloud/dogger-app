@@ -93,6 +93,24 @@ const useBookingStore = create(
     {
       name: 'dogger-booking',
       storage: createJSONStorage(() => sessionStorage),
+      partialize: (state) => ({
+        flowType: state.flowType,
+        homeConfirmed: state.homeConfirmed,
+        homeMode: state.homeMode,
+        homeDuration: state.homeDuration,
+        homeAddress: state.homeAddress,
+        homeStartDate: state.homeStartDate,
+        homeEndDate: state.homeEndDate,
+        homeDepositTime: state.homeDepositTime,
+        homePickupTime: state.homePickupTime,
+        walker: state.walker,
+        walkerPhase: state.walkerPhase,
+        etaSeconds: state.etaSeconds,
+        matched: state.matched,
+        userCoords: state.userCoords,
+        dogHandedOver: state.dogHandedOver,
+        selectedDogs: state.selectedDogs,
+      }),
     }
   )
 );

@@ -741,7 +741,7 @@ export default function BookingFlow() {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
         <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 24px 32px' }}>
-          <button onClick={() => walkStep > 1 ? setWalkStep(walkStep - 1) : setFlowType(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
+          <button onClick={() => walkStep > 1 ? setWalkStep(walkStep - 1) : goToDashboard()} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
           <div style={{ fontSize: 28, marginBottom: 8 }}>{walkStep === 1 ? '📍' : walkStep === 2 ? '🐾' : walkStep === 3 ? '🎯' : '✅'}</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', marginBottom: 6 }}>{walkStep === 1 ? 'Où ?' : walkStep === 2 ? 'Quel(s) chien(s) ?' : walkStep === 3 ? 'Quel service ?' : 'Récapitulatif'}</h1>
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>Étape {walkStep} sur 4</p>

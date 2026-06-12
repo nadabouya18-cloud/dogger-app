@@ -683,7 +683,7 @@ export default function BookingFlow() {
   }
 
   // ── CHOIX INITIAL ─────────────────────────────────────────────────────────
-  if (!flowType) {
+  if (!flowType && !urlFlowType) {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
         <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 24px 40px' }}>

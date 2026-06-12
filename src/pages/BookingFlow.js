@@ -400,6 +400,17 @@ export default function BookingFlow() {
       setHomeConfirmed(true);
       return;
     }
+    // Mode "maintenant" avec un gardien déjà choisi (étape 4) → pas de recherche, accès direct au suivi
+    if (flowType === 'home' && homeMode === 'now' && selectedHomeWalker) {
+      const w = { ...selectedHomeWalker, emoji: selectedHomeWalker.photo };
+      const etaMinutes = parseInt(selectedHomeWalker.eta) || 8;
+      setWalker(w);
+      setWalkerPhase('incoming');
+      setEtaSeconds(etaMinutes * 60);
+      setMatched(true);
+      setHomeConfirmed(true);
+      return;
+    }
     setSearching(true);
   };
 

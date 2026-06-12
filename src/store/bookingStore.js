@@ -70,7 +70,9 @@ const useBookingStore = create(
       selectedDogs: [],
       setWalker: (w) => set({ walker: w }),
       setWalkerPhase: (p) => set({ walkerPhase: p }),
-      setEtaSeconds: (s) => set({ etaSeconds: s }),
+      setEtaSeconds: (s) => set((state) => ({
+        etaSeconds: typeof s === 'function' ? s(state.etaSeconds) : s
+      })),
       setMatched: (v) => set({ matched: v }),
       setSearching: (v) => set({ searching: v }),
       setUserCoords: (c) => set({ userCoords: c }),

@@ -902,7 +902,7 @@ export default function BookingFlow() {
     return (
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
         <div style={{ background: 'linear-gradient(160deg, #D97706, #F59E0B)', padding: '48px 24px 32px' }}>
-          <button onClick={() => homeStep > 1 ? setHomeStep(homeStep - 1) : setFlowType(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
+          <button onClick={() => homeStep > 1 ? setHomeStep(homeStep - 1) : goToDashboard()} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
           <div style={{ fontSize: 28, marginBottom: 8 }}>🏠</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Dogger Home</h1>
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)', marginBottom: 6 }}>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../supabase';
 
 const MOCK_MISSION = {
  id: 'mission_001',
@@ -22,6 +23,9 @@ const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 export default function WalkerHome() {
  const navigate = useNavigate();
  const [tab, setTab] = useState('home');
+ const [profileLoading, setProfileLoading] = useState(true);
+ const [profile, setProfile] = useState(null);
+ const [walkerProfile, setWalkerProfile] = useState(null);
  const [available, setAvailable] = useState(false);
  const [phase, setPhase] = useState('idle');
  const [mission, setMission] = useState(null);
@@ -36,6 +40,39 @@ export default function WalkerHome() {
  const mapInstanceRef = useRef(null);
  const walkerTimerRef = useRef(null);
  const missionTimerRef = useRef(null);
+
+ // Charger le profil promeneur connecté
+ useEffect(() => {
+   const loadProfile = async () => {
+     try {
+       const { data: { session } } = await supabase.auth.getSession();
+       if (!session) { navigate('/login?redirect=walker'); return; }
+       const { data: profileData } = await supabase
+         .from('profiles').select('*').eq('id', session.user.id).single();
+       const { data: walkerData } = await supabase
+         .from('walker_profiles').select('*').eq('id', session.user.id).maybeSingle();
+       if (!walkerData) { navigate('/register-walker'); return; }
+       setProfile(profileData);
+       setWalkerProfile(walkerData);
+     } catch (e) {
+       console.error(e);
+     } finally {
+       setProfileLoading(false);
+     }
+   };
+   loadProfile();
+ }, [navigate]);
+
+ const handleLogout = async () => {
+   await supabase.auth.signOut();
+   navigate('/');
+ };
+
+ const displayName = profile
+   ? `${profile.first_name || ''}${profile.last_name ? ' ' + profile.last_name.charAt(0) + '.' : ''}`.trim() || 'Promeneur'
+   : 'Promeneur';
+ const totalWalks = (walkerProfile?.total_walks || 0) + history.length;
+ const ratingLabel = walkerProfile?.rating ? `⭐ ${walkerProfile.rating}` : '✨ Nouveau';
 
  // Simuler réception mission après 5s si disponible
  useEffect(() => {
@@ -187,6 +224,14 @@ export default function WalkerHome() {
 
  const progressPct = mission ? Math.min(100, (walkTime / (mission.duration * 60)) * 100) : 0;
 
+ if (profileLoading) {
+   return (
+     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }}>
+       <div style={{ fontSize: 48 }}>🐾</div>
+     </div>
+   );
+ }
+
  return (
    <div style={{ minHeight: '100vh', background: '#F8FAF9', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto', paddingBottom: 80 }}>
      <style>{`
@@ -274,7 +319,7 @@ export default function WalkerHome() {
        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
          <div>
            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 2 }}>Espace promeneur</p>
-           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Thomas M. 🐾</h1>
+           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{displayName} 🐾</h1>
          </div>
          <div style={{ textAlign: 'right' }}>
            <div style={{ fontSize: 20, fontWeight: 700, color: '#fff' }}>{earnings}€</div>
@@ -340,7 +385,7 @@ export default function WalkerHome() {
              {[
                { label: "Aujourd'hui", value: `${earnings}€`, icon: '💶' },
                { label: 'Ce mois', value: `${243 + earnings}€`, icon: '📅' },
-               { label: 'Balades', value: String(history.length + 127), icon: '🐾' },
+               { label: 'Balades', value: String(totalWalks), icon: '🐾' },
              ].map(s => (
                <div key={s.label} style={{ background: '#fff', borderRadius: 14, padding: '14px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                  <div style={{ fontSize: 22, marginBottom: 4 }}>{s.icon}</div>
@@ -492,8 +537,8 @@ export default function WalkerHome() {
            </div>
            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
              {[
-               { label: 'Balades', value: String(history.length + 127), icon: '🐾' },
-               { label: 'Note moy.', value: '4.9 ⭐', icon: '⭐' },
+               { label: 'Balades', value: String(totalWalks), icon: '🐾' },
+               { label: 'Note moy.', value: walkerProfile?.rating ? `${walkerProfile.rating} ⭐` : 'Nouveau', icon: '⭐' },
                { label: 'Heures', value: '34h', icon: '⏱️' },
                { label: 'Clients', value: '23', icon: '👥' },
              ].map(s => (
@@ -525,10 +570,17 @@ export default function WalkerHome() {
        {tab === 'profile' && (
          <div style={{ animation: 'slidein 0.3s ease' }}>
            <div style={{ background: '#fff', borderRadius: 18, padding: '24px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
-             <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, margin: '0 auto 12px' }}>🧑</div>
-             <div style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 4 }}>Thomas M.</div>
-             <div style={{ fontSize: 14, color: '#1D9E75', marginBottom: 4 }}>⭐ 4.9 · {history.length + 127} balades</div>
-             <div style={{ fontSize: 13, color: '#888' }}>Promeneur certifié Dogger 🐾</div>
+             <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, margin: '0 auto 12px', overflow: 'hidden' }}>
+               {profile?.photo_url ? <img src={profile.photo_url} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🧑'}
+             </div>
+             <div style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 4 }}>{displayName}</div>
+             <div style={{ fontSize: 14, color: '#1D9E75', marginBottom: 4 }}>{ratingLabel} · {totalWalks} balade{totalWalks > 1 ? 's' : ''}</div>
+             <div style={{ fontSize: 13, color: '#888' }}>Promeneur Dogger 🐾</div>
+             {walkerProfile?.bio && (
+               <div style={{ marginTop: 16, textAlign: 'left', background: '#F8FAF9', borderRadius: 12, padding: '14px 16px', fontSize: 13, color: '#555', lineHeight: 1.5 }}>
+                 {walkerProfile.bio}
+               </div>
+             )}
            </div>
            <div style={{ background: '#fff', borderRadius: 16, padding: '4px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
              {[
@@ -536,9 +588,9 @@ export default function WalkerHome() {
                { icon: '🏦', label: 'Informations bancaires' },
                { icon: '📱', label: 'Notifications' },
                { icon: '❓', label: 'Aide & Support' },
-               { icon: '🚪', label: 'Se déconnecter', color: '#E24B4A' },
+               { icon: '🚪', label: 'Se déconnecter', color: '#E24B4A', onClick: handleLogout },
              ].map((item, idx, arr) => (
-               <div key={item.label}
+               <div key={item.label} onClick={item.onClick}
                  style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: idx < arr.length - 1 ? '1px solid #F0F0F0' : 'none', cursor: 'pointer' }}>
                  <span style={{ fontSize: 20 }}>{item.icon}</span>
                  <span style={{ fontSize: 15, color: item.color || '#1A1A1A', fontWeight: 500 }}>{item.label}</span>

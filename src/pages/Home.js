@@ -49,7 +49,7 @@ export default function Home() {
           <button onClick={() => navigate('/login?redirect=book')} style={{ flex: 1, padding: '14px 20px', background: '#fff', color: '#0F6E56', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
             Commander 🐾
           </button>
-          <button onClick={() => navigate('/walker')} style={{ flex: 1, padding: '14px 20px', background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1.5px solid rgba(255,255,255,0.35)', borderRadius: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
+          <button onClick={() => navigate('/register-walker')} style={{ flex: 1, padding: '14px 20px', background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1.5px solid rgba(255,255,255,0.35)', borderRadius: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
             Promener
           </button>
         </div>
@@ -99,7 +99,7 @@ export default function Home() {
       </div>
 
       {/* WALKER BANNER */}
-      <div onClick={() => navigate('/walker')} style={{ margin: '20px 20px 0', background: 'linear-gradient(135deg, #0F6E56, #0A4D3A)', borderRadius: 16, padding: '20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
+      <div onClick={() => navigate('/register-walker')} style={{ margin: '20px 20px 0', background: 'linear-gradient(135deg, #0F6E56, #0A4D3A)', borderRadius: 16, padding: '20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
         <span style={{ fontSize: 36 }}>🚶</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 3 }}>Devenez promeneur Dogger</div>

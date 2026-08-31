@@ -20,7 +20,7 @@ export default function Login() {
    setError('');
    setLoading(true);
    try {
-     const { error: authError } = await supabase.auth.signInWithPassword({
+     const { data: signInData, error: authError } = await supabase.auth.signInWithPassword({
        email: form.email,
        password: form.password,
      });
@@ -34,7 +34,18 @@ export default function Login() {
        }
        return;
      }
-     navigate('/' + redirect);
+
+     // Un compte promeneur a une ligne dans walker_profiles : on l'envoie
+     // toujours vers son espace promeneur, quel que soit le paramètre redirect.
+     const userId = signInData?.user?.id;
+     let destination = '/' + redirect;
+     if (userId) {
+       const { data: walkerProfile } = await supabase
+         .from('walker_profiles').select('id').eq('id', userId).maybeSingle();
+       if (walkerProfile) destination = '/walker';
+       else if (redirect === 'walker') destination = '/register-walker';
+     }
+     navigate(destination);
    } catch (e) {
      setError('Une erreur est survenue — réessayez');
    } finally {

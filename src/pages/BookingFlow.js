@@ -76,6 +76,16 @@ function formatDuration(minutes) {
   return `${minutes} min`;
 }
 
+// Distance à vol d'oiseau entre deux points GPS, en kilomètres
+function distanceKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function BookingFlow() {
   const navigate = useNavigate();
   const { flowType: urlFlowType } = useParams();
@@ -444,7 +454,7 @@ export default function BookingFlow() {
     if (!session) { setSearching(false); navigate('/login'); return; }
 
     const { data: candidates } = await supabase.rpc('get_available_walkers');
-    const pool = (candidates || []).filter(c => !matchTriedRef.current.includes(c.id));
+    let pool = (candidates || []).filter(c => !matchTriedRef.current.includes(c.id));
 
     if (!pool.length) {
       setSearching(false);
@@ -452,7 +462,20 @@ export default function BookingFlow() {
       return;
     }
 
-    pool.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    // Distance réelle si on connaît la position du promeneur et la vôtre —
+    // sinon on retombe sur le classement par note.
+    pool = pool.map(c => ({
+      ...c,
+      distanceKm: (userCoords && c.lat != null && c.lng != null)
+        ? distanceKm(userCoords.lat, userCoords.lng, c.lat, c.lng)
+        : null,
+    }));
+    pool.sort((a, b) => {
+      if (a.distanceKm != null && b.distanceKm != null) return a.distanceKm - b.distanceKm;
+      if (a.distanceKm != null) return -1;
+      if (b.distanceKm != null) return 1;
+      return (b.rating || 0) - (a.rating || 0);
+    });
     const chosen = pool[0];
     matchTriedRef.current = [...matchTriedRef.current, chosen.id];
 
@@ -480,6 +503,7 @@ export default function BookingFlow() {
       price,
       address: walkAddress,
       instructions: walkInstructions,
+      distance_km: chosen.distanceKm != null ? Math.round(chosen.distanceKm * 10) / 10 : null,
       status: 'pending',
       updated_at: new Date().toISOString(),
     };
@@ -509,7 +533,9 @@ export default function BookingFlow() {
           : 'Promeneur';
         setWalker({ name, rating: chosen.rating || 5, walks: chosen.total_walks || 0, emoji: '🧑' });
         setWalkerPhase('incoming');
-        setEtaSeconds(480);
+        // ETA approximative à partir de la vraie distance (marche à ~5 km/h),
+        // sinon estimation par défaut si la position n'est pas connue.
+        setEtaSeconds(chosen.distanceKm != null ? Math.max(60, Math.round(chosen.distanceKm / 5 * 3600)) : 480);
         setMatched(true);
         setSearching(false);
       } else if (row?.status === 'refused') {

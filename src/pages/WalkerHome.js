@@ -2,22 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 
-const MOCK_MISSION = {
- id: 'mission_001',
- owner: 'Nada B.',
- ownerPhoto: null,
- dog: 'Oya',
- dogBreed: 'Bichon Maltais',
- dogSize: 'xs',
- dogPhoto: null,
- service: 'Balade',
- duration: 30,
- price: 13,
- address: '12 rue de la Paix, Paris 75001',
- distance: '320m',
- instructions: 'Elle tire un peu en laisse, sinon très gentille 🐾',
-};
-
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
 export default function WalkerHome() {
@@ -35,6 +19,7 @@ export default function WalkerHome() {
  const [photos, setPhotos] = useState([]);
  const [rating, setRating] = useState(0);
  const [showRating, setShowRating] = useState(false);
+ const [walkerId, setWalkerId] = useState(null);
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
  const walkerTimerRef = useRef(null);
@@ -56,6 +41,8 @@ export default function WalkerHome() {
          .order('created_at', { ascending: false }).limit(200);
        setProfile(profileData);
        setWalkerProfile(walkerData);
+       setWalkerId(session.user.id);
+       setAvailable(!!walkerData.available);
        if (walksData) {
          setHistory(walksData.map(w => ({
            id: w.id,
@@ -101,16 +88,42 @@ export default function WalkerHome() {
  const todayEarnings = history.filter(h => h.createdAt && isSameDay(new Date(h.createdAt))).reduce((sum, h) => sum + h.price, 0);
  const monthEarnings = history.filter(h => h.createdAt && isSameMonth(new Date(h.createdAt))).reduce((sum, h) => sum + h.price, 0);
 
- // Simuler réception mission après 5s si disponible
+ // Chercher une vraie demande de balade en attente pendant qu'on est disponible
  useEffect(() => {
-   if (!available || phase !== 'idle') return;
-   const timeout = setTimeout(() => {
-     setMission(MOCK_MISSION);
+   if (!available || phase !== 'idle' || !walkerId) return;
+   let cancelled = false;
+   const checkForMission = async () => {
+     const { data } = await supabase
+       .from('bookings')
+       .select('*')
+       .eq('walker_id', walkerId)
+       .eq('status', 'pending')
+       .order('created_at', { ascending: true })
+       .limit(1);
+     if (cancelled || !data || data.length === 0) return;
+     const b = data[0];
+     setMission({
+       bookingId: b.id,
+       owner: b.owner_name || 'Propriétaire',
+       ownerPhoto: b.owner_photo_url,
+       dog: b.dog_name || 'Chien',
+       dogBreed: b.dog_breed || '',
+       dogSize: b.dog_size || 'm',
+       dogPhoto: b.dog_photo_url,
+       service: b.service,
+       duration: b.duration,
+       price: Number(b.price),
+       address: b.address || 'Adresse communiquée après acceptation',
+       distance: 'à proximité',
+       instructions: b.instructions,
+     });
      setMissionTimer(30);
      setPhase('mission_incoming');
-   }, 5000);
-   return () => clearTimeout(timeout);
- }, [available, phase]);
+   };
+   checkForMission();
+   const interval = setInterval(checkForMission, 4000);
+   return () => { cancelled = true; clearInterval(interval); };
+ }, [available, phase, walkerId]);
 
  // Timer mission 30s
  useEffect(() => {
@@ -119,6 +132,9 @@ export default function WalkerHome() {
      setMissionTimer(t => {
        if (t <= 1) {
          clearInterval(missionTimerRef.current);
+         if (mission?.bookingId) {
+           supabase.from('bookings').update({ status: 'refused' }).eq('id', mission.bookingId);
+         }
          setPhase('idle');
          setMission(null);
          return 30;
@@ -127,7 +143,7 @@ export default function WalkerHome() {
      });
    }, 1000);
    return () => clearInterval(missionTimerRef.current);
- }, [phase]);
+ }, [phase, mission]);
 
  // Timer balade
  useEffect(() => {
@@ -189,14 +205,24 @@ export default function WalkerHome() {
    }
  }, [phase, initNavMap]);
 
- const acceptMission = () => {
+ const acceptMission = async () => {
    clearInterval(missionTimerRef.current);
+   if (mission?.bookingId) {
+     await supabase.from('bookings').update({ status: 'accepted' }).eq('id', mission.bookingId);
+   }
+   if (walkerId) {
+     await supabase.from('walker_profiles').update({ available: false }).eq('id', walkerId);
+   }
+   setAvailable(false);
    setPhase('navigating');
    setTab('mission');
  };
 
- const refuseMission = () => {
+ const refuseMission = async () => {
    clearInterval(missionTimerRef.current);
+   if (mission?.bookingId) {
+     await supabase.from('bookings').update({ status: 'refused' }).eq('id', mission.bookingId);
+   }
    setPhase('idle');
    setMission(null);
  };
@@ -249,6 +275,11 @@ export default function WalkerHome() {
          createdAt: inserted.created_at,
        }, ...h]);
      }
+     if (mission.bookingId) {
+       await supabase.from('bookings').update({ status: 'completed' }).eq('id', mission.bookingId);
+     }
+     await supabase.from('walker_profiles').update({ available: true }).eq('id', session.user.id);
+     setAvailable(true);
    }
    setShowRating(false);
    setPhase('idle');
@@ -381,7 +412,14 @@ export default function WalkerHome() {
              {available ? 'Vous recevez des missions' : 'Activez pour recevoir des missions'}
            </div>
          </div>
-         <div onClick={() => { setAvailable(a => !a); if (available) { setPhase('idle'); setMission(null); } }}
+         <div onClick={async () => {
+           const next = !available;
+           setAvailable(next);
+           if (!next) { setPhase('idle'); setMission(null); }
+           if (walkerId) {
+             await supabase.from('walker_profiles').update({ available: next }).eq('id', walkerId);
+           }
+         }}
            style={{ width: 52, height: 28, borderRadius: 14, background: available ? '#fff' : 'rgba(255,255,255,0.3)', cursor: 'pointer', position: 'relative', transition: 'background 0.3s', flexShrink: 0 }}>
            <div style={{ width: 22, height: 22, borderRadius: '50%', background: available ? '#1D9E75' : '#fff', position: 'absolute', top: 3, left: available ? 27 : 3, transition: 'left 0.3s' }} />
          </div>

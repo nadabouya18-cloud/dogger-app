@@ -114,7 +114,7 @@ export default function WalkerHome() {
        duration: b.duration,
        price: Number(b.price),
        address: b.address || 'Adresse communiquée après acceptation',
-       distance: 'à proximité',
+       distance: b.distance_km != null ? `${b.distance_km} km` : 'proximité inconnue',
        instructions: b.instructions,
      });
      setMissionTimer(30);
@@ -124,6 +124,28 @@ export default function WalkerHome() {
    const interval = setInterval(checkForMission, 4000);
    return () => { cancelled = true; clearInterval(interval); };
  }, [available, phase, walkerId]);
+
+ // Partager sa position pendant qu'on est disponible, pour qu'on ne nous
+ // envoie pas des demandes à l'autre bout de la ville
+ useEffect(() => {
+   if (!available || !walkerId || !navigator.geolocation) return;
+   const shareLocation = () => {
+     navigator.geolocation.getCurrentPosition(
+       (pos) => {
+         supabase.from('walker_profiles').update({
+           lat: pos.coords.latitude,
+           lng: pos.coords.longitude,
+           location_updated_at: new Date().toISOString(),
+         }).eq('id', walkerId);
+       },
+       () => { /* position refusée ou indisponible — on continue sans */ },
+       { timeout: 10000 }
+     );
+   };
+   shareLocation();
+   const interval = setInterval(shareLocation, 120000);
+   return () => clearInterval(interval);
+ }, [available, walkerId]);
 
  // Timer mission 30s
  useEffect(() => {

@@ -76,6 +76,12 @@ export default function RegisterWalker() {
             first_name: form.firstName,
             last_name: form.lastName,
             phone: form.phone,
+            // role + bio sont lus côté base de données par un déclencheur
+            // (voir walker_profiles.sql) qui crée la ligne walker_profiles
+            // automatiquement — ça marche même si le compte n'a pas encore
+            // de session active (email pas encore confirmé).
+            role: 'walker',
+            bio: form.bio,
           }
         }
       });
@@ -88,26 +94,6 @@ export default function RegisterWalker() {
       }
       if (!data?.user?.id) {
         setError('Erreur lors de la création du compte — réessayez');
-        setLoading(false);
-        return;
-      }
-
-      // On s'assure que le profil de base (nom/photo/tél) est bien enregistré,
-      // que le compte owner-side ait déjà une ligne "profiles" ou non.
-      await supabase.from('profiles').upsert({
-        id: data.user.id,
-        first_name: form.firstName,
-        last_name: form.lastName,
-        phone: form.phone,
-        photo_url: form.photo,
-      });
-
-      const { error: walkerError } = await supabase.from('walker_profiles').insert({
-        id: data.user.id,
-        bio: form.bio,
-      });
-      if (walkerError) {
-        setError('Compte créé, mais le profil promeneur n\'a pas pu être enregistré — contactez le support');
         setLoading(false);
         return;
       }

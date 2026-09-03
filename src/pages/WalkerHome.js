@@ -20,6 +20,7 @@ export default function WalkerHome() {
  const [rating, setRating] = useState(0);
  const [showRating, setShowRating] = useState(false);
  const [walkerId, setWalkerId] = useState(null);
+ const [locationStatus, setLocationStatus] = useState('idle'); // idle | pending | shared | denied | unsupported
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
  const walkerTimerRef = useRef(null);
@@ -128,17 +129,21 @@ export default function WalkerHome() {
  // Partager sa position pendant qu'on est disponible, pour qu'on ne nous
  // envoie pas des demandes à l'autre bout de la ville
  useEffect(() => {
-   if (!available || !walkerId || !navigator.geolocation) return;
+   if (!available) { setLocationStatus('idle'); return; }
+   if (!walkerId) return;
+   if (!navigator.geolocation) { setLocationStatus('unsupported'); return; }
+   setLocationStatus('pending');
    const shareLocation = () => {
      navigator.geolocation.getCurrentPosition(
        (pos) => {
+         setLocationStatus('shared');
          supabase.from('walker_profiles').update({
            lat: pos.coords.latitude,
            lng: pos.coords.longitude,
            location_updated_at: new Date().toISOString(),
          }).eq('id', walkerId);
        },
-       () => { /* position refusée ou indisponible — on continue sans */ },
+       () => { setLocationStatus('denied'); },
        { timeout: 10000 }
      );
    };
@@ -449,6 +454,22 @@ export default function WalkerHome() {
            <div style={{ width: 22, height: 22, borderRadius: '50%', background: available ? '#1D9E75' : '#fff', position: 'absolute', top: 3, left: available ? 27 : 3, transition: 'left 0.3s' }} />
          </div>
        </div>
+
+       {available && locationStatus === 'shared' && (
+         <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.8)', textAlign: 'center' }}>
+           📍 Position partagée — vous serez proposé(e) en priorité aux propriétaires proches
+         </div>
+       )}
+       {available && locationStatus === 'pending' && (
+         <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.8)', textAlign: 'center' }}>
+           📍 Demande de position en cours...
+         </div>
+       )}
+       {available && (locationStatus === 'denied' || locationStatus === 'unsupported') && (
+         <div style={{ marginTop: 10, fontSize: 12, color: '#FFE9A8', textAlign: 'center' }}>
+           ⚠️ Position non partagée — vous recevrez quand même des demandes, mais pas forcément les plus proches
+         </div>
+       )}
 
        {available && phase === 'idle' && (
          <div style={{ marginTop: 12, background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'rgba(255,255,255,0.8)', textAlign: 'center', animation: 'pulse 2s infinite' }}>

@@ -231,6 +231,9 @@ export default function WalkerHome() {
    setWalkTime(0);
    mapInstanceRef.current = null;
    setPhase('walking');
+   if (mission?.bookingId) {
+     supabase.from('bookings').update({ status: 'walking' }).eq('id', mission.bookingId);
+   }
  };
 
  const handlePhoto = (e) => {

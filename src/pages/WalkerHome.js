@@ -20,7 +20,7 @@ export default function WalkerHome() {
  const [rating, setRating] = useState(0);
  const [showRating, setShowRating] = useState(false);
  const [walkerId, setWalkerId] = useState(null);
- const [locationStatus, setLocationStatus] = useState('idle'); // idle | pending | shared | denied | unsupported
+ const [locationStatus, setLocationStatus] = useState('idle'); // idle | pending | shared | denied | unsupported | error
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
  const walkerTimerRef = useRef(null);
@@ -135,13 +135,18 @@ export default function WalkerHome() {
    setLocationStatus('pending');
    const shareLocation = () => {
      navigator.geolocation.getCurrentPosition(
-       (pos) => {
-         setLocationStatus('shared');
-         supabase.from('walker_profiles').update({
+       async (pos) => {
+         const { error } = await supabase.from('walker_profiles').update({
            lat: pos.coords.latitude,
            lng: pos.coords.longitude,
            location_updated_at: new Date().toISOString(),
          }).eq('id', walkerId);
+         if (error) {
+           console.error('Échec de sauvegarde de la position :', error);
+           setLocationStatus('error');
+         } else {
+           setLocationStatus('shared');
+         }
        },
        () => { setLocationStatus('denied'); },
        { timeout: 10000 }
@@ -468,6 +473,11 @@ export default function WalkerHome() {
        {available && (locationStatus === 'denied' || locationStatus === 'unsupported') && (
          <div style={{ marginTop: 10, fontSize: 12, color: '#FFE9A8', textAlign: 'center' }}>
            ⚠️ Position non partagée — vous recevrez quand même des demandes, mais pas forcément les plus proches
+         </div>
+       )}
+       {available && locationStatus === 'error' && (
+         <div style={{ marginTop: 10, fontSize: 12, color: '#FFB3B3', textAlign: 'center' }}>
+           ⚠️ Votre position n'a pas pu être enregistrée (erreur technique) — contactez le support
          </div>
        )}
 

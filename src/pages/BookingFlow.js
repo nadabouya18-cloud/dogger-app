@@ -126,17 +126,25 @@ export default function BookingFlow() {
   const addressRef = useRef(null);
   const homeAddressRef = useRef(null);
   const chatEndRef = useRef(null);
+  const matchTriedRef = useRef([]);
+  const matchBookingIdRef = useRef(null);
+  const matchPollRef = useRef(null);
+  const [matchingError, setMatchingError] = React.useState('');
 
   // Initialiser flowType depuis l'URL
   useEffect(() => {
     if (urlFlowType === 'walk' || urlFlowType === 'home') {
       if (!homeConfirmed && !matched) {
         resetBooking();
+        matchTriedRef.current = [];
+        matchBookingIdRef.current = null;
       }
       setFlowType(urlFlowType);
     } else if (!urlFlowType) {
       // On arrive sur /book sans flowType — reset systématique
       resetBooking();
+      matchTriedRef.current = [];
+      matchBookingIdRef.current = null;
     }
   }, [urlFlowType]);
 
@@ -279,17 +287,17 @@ export default function BookingFlow() {
     return () => clearInterval(interval);
   }, [matched, walkerPhase]);
 
-  // Animation recherche
+  // Animation recherche (garde à domicile — mise en relation encore simulée)
   useEffect(() => {
-    if (!searching) return;
+    if (!searching || flowType === 'walk') return;
     let i = 0;
-    const steps = flowType === 'home' ? SEARCH_STEPS : WALK_SEARCH_STEPS;
+    const steps = SEARCH_STEPS;
     const interval = setInterval(() => {
       setSearchStep(i); i++;
       if (i >= steps.length) {
         clearInterval(interval);
         setTimeout(() => {
-          const w = flowType === 'home' && selectedHomeWalker
+          const w = selectedHomeWalker
             ? { ...selectedHomeWalker, emoji: selectedHomeWalker.photo }
             : { name: 'Thomas M.', rating: 4.9, walks: 127, emoji: '🧑' };
           setWalker(w);
@@ -297,12 +305,25 @@ export default function BookingFlow() {
           setEtaSeconds(480);
           setMatched(true);
           setSearching(false);
-          if (flowType === 'home') setHomeConfirmed(true);
+          setHomeConfirmed(true);
         }, 800);
       }
     }, 900);
     return () => clearInterval(interval);
   }, [searching, flowType, selectedHomeWalker]);
+
+  // Animation recherche décorative pour la Balade — le vrai matching (réel,
+  // avec de vrais promeneurs) est piloté par startRealWalkSearch ci-dessous.
+  useEffect(() => {
+    if (!searching || flowType !== 'walk') return;
+    let i = 0;
+    const total = WALK_SEARCH_STEPS.length;
+    const interval = setInterval(() => {
+      setSearchStep(i % total);
+      i++;
+    }, 900);
+    return () => clearInterval(interval);
+  }, [searching, flowType]);
 
   useEffect(() => {
     if (!searching) return;
@@ -326,13 +347,19 @@ export default function BookingFlow() {
   };
 
   const handleCancelConfirm = () => {
+    if (flowType === 'walk' && matchBookingIdRef.current) {
+      supabase.from('bookings').update({ status: 'cancelled' }).eq('id', matchBookingIdRef.current);
+    }
     resetBooking();
     navigate('/dashboard');
   };
 
   const startWalk = () => {
-    if (flowType === 'home') setHomeConfirmed(true);
-    else navigate('/dashboard');
+    if (flowType === 'home') { setHomeConfirmed(true); return; }
+    if (matchBookingIdRef.current) {
+      supabase.from('bookings').update({ status: 'walking' }).eq('id', matchBookingIdRef.current);
+    }
+    navigate('/dashboard');
   };
 
   const confirmHandover = () => {
@@ -391,6 +418,99 @@ export default function BookingFlow() {
     }, () => { setLocating(false); }, { timeout: 10000, enableHighAccuracy: true });
   };
 
+  // Vraie mise en relation pour la Balade : cherche un promeneur réellement
+  // disponible, crée la réservation, et attend sa réponse. Si le promeneur
+  // refuse (ou ne répond pas), retente automatiquement avec un autre.
+  const startRealWalkSearch = async () => {
+    if (matchPollRef.current) { clearInterval(matchPollRef.current); matchPollRef.current = null; }
+    setMatchingError('');
+    setSearching(true);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setSearching(false); navigate('/login'); return; }
+
+    const { data: candidates } = await supabase.rpc('get_available_walkers');
+    const pool = (candidates || []).filter(c => !matchTriedRef.current.includes(c.id));
+
+    if (!pool.length) {
+      setSearching(false);
+      setMatchingError('Aucun promeneur disponible pour le moment. Réessayez dans quelques minutes.');
+      return;
+    }
+
+    pool.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    const chosen = pool[0];
+    matchTriedRef.current = [...matchTriedRef.current, chosen.id];
+
+    const svc = WALK_SERVICES.find(s => s.id === walkService);
+    const price = Math.round((svc?.pricePerMin || 0.3) * walkDuration);
+    const dog = userDogs.find(d => d.id === selectedDogs[0]);
+
+    const { data: profileData } = await supabase
+      .from('profiles').select('first_name,last_name,photo_url').eq('id', session.user.id).single();
+    const ownerName = profileData
+      ? `${profileData.first_name || ''}${profileData.last_name ? ' ' + profileData.last_name.charAt(0) + '.' : ''}`.trim()
+      : '';
+
+    const bookingPayload = {
+      owner_id: session.user.id,
+      walker_id: chosen.id,
+      owner_name: ownerName || 'Propriétaire',
+      owner_photo_url: profileData?.photo_url || null,
+      dog_name: dog?.name || null,
+      dog_breed: dog?.breed || null,
+      dog_size: dog?.size || null,
+      dog_photo_url: dog?.photo_url || null,
+      service: svc?.name || 'Balade',
+      duration: walkDuration,
+      price,
+      address: walkAddress,
+      instructions: walkInstructions,
+      status: 'pending',
+      updated_at: new Date().toISOString(),
+    };
+
+    if (matchBookingIdRef.current) {
+      await supabase.from('bookings').update(bookingPayload).eq('id', matchBookingIdRef.current);
+    } else {
+      const { data: inserted, error: insertError } = await supabase
+        .from('bookings').insert(bookingPayload).select().single();
+      if (insertError || !inserted) {
+        setSearching(false);
+        setMatchingError('Une erreur est survenue, réessayez.');
+        return;
+      }
+      matchBookingIdRef.current = inserted.id;
+    }
+
+    const bookingId = matchBookingIdRef.current;
+    const startedAt = Date.now();
+    matchPollRef.current = setInterval(async () => {
+      const { data: row } = await supabase.from('bookings').select('status').eq('id', bookingId).single();
+      if (row?.status === 'accepted') {
+        clearInterval(matchPollRef.current);
+        matchPollRef.current = null;
+        const name = chosen.first_name
+          ? `${chosen.first_name}${chosen.last_name ? ' ' + chosen.last_name.charAt(0) + '.' : ''}`
+          : 'Promeneur';
+        setWalker({ name, rating: chosen.rating || 5, walks: chosen.total_walks || 0, emoji: '🧑' });
+        setWalkerPhase('incoming');
+        setEtaSeconds(480);
+        setMatched(true);
+        setSearching(false);
+      } else if (row?.status === 'refused') {
+        clearInterval(matchPollRef.current);
+        matchPollRef.current = null;
+        startRealWalkSearch();
+      } else if (Date.now() - startedAt > 45000) {
+        clearInterval(matchPollRef.current);
+        matchPollRef.current = null;
+        setSearching(false);
+        setMatchingError("Personne n'a répondu à temps. Réessayez.");
+      }
+    }, 3000);
+  };
+
   const confirmSearch = () => {
     if (flowType === 'home' && homeMode === 'later') {
       const w = selectedHomeWalker
@@ -411,12 +531,25 @@ export default function BookingFlow() {
       setHomeConfirmed(true);
       return;
     }
+    if (flowType === 'walk') { startRealWalkSearch(); return; }
     setSearching(true);
   };
 
   const inputStyle = { width: '100%', padding: '14px 16px', borderRadius: 12, border: '1.5px solid #E8E8E8', fontSize: 15, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', color: '#1A1A1A', marginBottom: 12, boxSizing: 'border-box' };
   const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
   const textareaStyle = { ...inputStyle, height: 72, resize: 'none' };
+
+  // ── ÉCHEC DE LA MISE EN RELATION (BALADE) ───────────────────────────────────
+  if (matchingError && flowType === 'walk' && !matched) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>{matchingError}</h3>
+        <button onClick={() => startRealWalkSearch()} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginTop: 20, marginBottom: 10 }}>🔄 Réessayer</button>
+        <button onClick={goToDashboard} style={{ width: '100%', padding: 13, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Annuler</button>
+      </div>
+    );
+  }
 
   // ── RECHERCHE ─────────────────────────────────────────────────────────────
   if (searching) {

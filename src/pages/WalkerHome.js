@@ -31,7 +31,6 @@ export default function WalkerHome() {
  const [mission, setMission] = useState(null);
  const [missionTimer, setMissionTimer] = useState(30);
  const [walkTime, setWalkTime] = useState(0);
- const [earnings, setEarnings] = useState(0);
  const [history, setHistory] = useState([]);
  const [photos, setPhotos] = useState([]);
  const [rating, setRating] = useState(0);
@@ -52,8 +51,24 @@ export default function WalkerHome() {
        const { data: walkerData } = await supabase
          .from('walker_profiles').select('*').eq('id', session.user.id).maybeSingle();
        if (!walkerData) { navigate('/register-walker'); return; }
+       const { data: walksData } = await supabase
+         .from('walks').select('*').eq('walker_id', session.user.id)
+         .order('created_at', { ascending: false }).limit(200);
        setProfile(profileData);
        setWalkerProfile(walkerData);
+       if (walksData) {
+         setHistory(walksData.map(w => ({
+           id: w.id,
+           owner: w.owner_name,
+           dog: w.dog_name,
+           service: w.service,
+           duration: w.duration,
+           price: Number(w.price),
+           rating: w.rating,
+           date: new Date(w.created_at).toLocaleDateString('fr-FR'),
+           createdAt: w.created_at,
+         })));
+       }
      } catch (e) {
        console.error(e);
      } finally {
@@ -71,8 +86,20 @@ export default function WalkerHome() {
  const displayName = profile
    ? `${profile.first_name || ''}${profile.last_name ? ' ' + profile.last_name.charAt(0) + '.' : ''}`.trim() || 'Promeneur'
    : 'Promeneur';
- const totalWalks = (walkerProfile?.total_walks || 0) + history.length;
- const ratingLabel = walkerProfile?.rating ? `⭐ ${walkerProfile.rating}` : '✨ Nouveau';
+ const totalWalks = history.length;
+ const ratedWalks = history.filter(h => h.rating);
+ const avgRating = ratedWalks.length > 0
+   ? (ratedWalks.reduce((sum, h) => sum + h.rating, 0) / ratedWalks.length).toFixed(1)
+   : null;
+ const ratingLabel = avgRating ? `⭐ ${avgRating}` : '✨ Nouveau';
+ const totalMinutes = history.reduce((sum, h) => sum + (h.duration || 0), 0);
+ const hoursLabel = totalMinutes > 0 ? `${(totalMinutes / 60).toFixed(1)}h` : '0h';
+ const clientCount = new Set(history.map(h => h.owner)).size;
+ const now = new Date();
+ const isSameDay = (d) => d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+ const isSameMonth = (d) => d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+ const todayEarnings = history.filter(h => h.createdAt && isSameDay(new Date(h.createdAt))).reduce((sum, h) => sum + h.price, 0);
+ const monthEarnings = history.filter(h => h.createdAt && isSameMonth(new Date(h.createdAt))).reduce((sum, h) => sum + h.price, 0);
 
  // Simuler réception mission après 5s si disponible
  useEffect(() => {
@@ -193,19 +220,36 @@ export default function WalkerHome() {
    setShowRating(true);
  };
 
- const submitRating = () => {
-   const newEntry = {
-     id: Date.now(),
-     owner: mission.owner,
-     dog: mission.dog,
-     service: mission.service,
-     duration: mission.duration,
-     price: mission.price,
-     date: new Date().toLocaleDateString('fr-FR'),
-     rating,
-   };
-   setHistory(h => [newEntry, ...h]);
-   setEarnings(e => e + mission.price);
+ const submitRating = async () => {
+   const { data: { session } } = await supabase.auth.getSession();
+   if (session && mission) {
+     const { data: inserted } = await supabase
+       .from('walks')
+       .insert({
+         walker_id: session.user.id,
+         owner_name: mission.owner,
+         dog_name: mission.dog,
+         service: mission.service,
+         duration: mission.duration,
+         price: mission.price,
+         rating,
+       })
+       .select()
+       .single();
+     if (inserted) {
+       setHistory(h => [{
+         id: inserted.id,
+         owner: inserted.owner_name,
+         dog: inserted.dog_name,
+         service: inserted.service,
+         duration: inserted.duration,
+         price: Number(inserted.price),
+         rating: inserted.rating,
+         date: new Date(inserted.created_at).toLocaleDateString('fr-FR'),
+         createdAt: inserted.created_at,
+       }, ...h]);
+     }
+   }
    setShowRating(false);
    setPhase('idle');
    setMission(null);
@@ -322,7 +366,7 @@ export default function WalkerHome() {
            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{displayName} 🐾</h1>
          </div>
          <div style={{ textAlign: 'right' }}>
-           <div style={{ fontSize: 20, fontWeight: 700, color: '#fff' }}>{earnings}€</div>
+           <div style={{ fontSize: 20, fontWeight: 700, color: '#fff' }}>{todayEarnings}€</div>
            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>gains aujourd'hui</div>
          </div>
        </div>
@@ -383,8 +427,8 @@ export default function WalkerHome() {
          <div style={{ animation: 'slidein 0.3s ease' }}>
            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 20 }}>
              {[
-               { label: "Aujourd'hui", value: `${earnings}€`, icon: '💶' },
-               { label: 'Ce mois', value: `${243 + earnings}€`, icon: '📅' },
+               { label: "Aujourd'hui", value: `${todayEarnings}€`, icon: '💶' },
+               { label: 'Ce mois', value: `${monthEarnings}€`, icon: '📅' },
                { label: 'Balades', value: String(totalWalks), icon: '🐾' },
              ].map(s => (
                <div key={s.label} style={{ background: '#fff', borderRadius: 14, padding: '14px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
@@ -532,15 +576,15 @@ export default function WalkerHome() {
          <div style={{ animation: 'slidein 0.3s ease' }}>
            <div style={{ background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '24px', marginBottom: 20, textAlign: 'center' }}>
              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginBottom: 4 }}>Gains ce mois</div>
-             <div style={{ fontSize: 40, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{243 + earnings}€</div>
-             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>dont {earnings}€ aujourd'hui</div>
+             <div style={{ fontSize: 40, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{monthEarnings}€</div>
+             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>dont {todayEarnings}€ aujourd'hui</div>
            </div>
            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
              {[
                { label: 'Balades', value: String(totalWalks), icon: '🐾' },
-               { label: 'Note moy.', value: walkerProfile?.rating ? `${walkerProfile.rating} ⭐` : 'Nouveau', icon: '⭐' },
-               { label: 'Heures', value: '34h', icon: '⏱️' },
-               { label: 'Clients', value: '23', icon: '👥' },
+               { label: 'Note moy.', value: avgRating ? `${avgRating} ⭐` : 'Nouveau', icon: '⭐' },
+               { label: 'Heures', value: hoursLabel, icon: '⏱️' },
+               { label: 'Clients', value: String(clientCount), icon: '👥' },
              ].map(s => (
                <div key={s.label} style={{ background: '#fff', borderRadius: 14, padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                  <div style={{ fontSize: 24, marginBottom: 6 }}>{s.icon}</div>

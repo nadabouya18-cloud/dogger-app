@@ -267,9 +267,10 @@ export default function BookingFlow() {
     return () => clearInterval(interval);
   }, [matched, walkerPhase, routePath.length, etaSeconds]);
 
-  // Countdown ETA
+  // Countdown ETA (garde à domicile uniquement — pour la Balade, la phase
+  // est pilotée par le vrai statut du promeneur, voir l'effet plus bas)
   useEffect(() => {
-    if (!matched || walkerPhase === 'here') return;
+    if (!matched || walkerPhase === 'here' || flowType === 'walk') return;
     const interval = setInterval(() => {
       setEtaSeconds(s => {
         const next = s - 1;
@@ -285,7 +286,28 @@ export default function BookingFlow() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [matched, walkerPhase]);
+  }, [matched, walkerPhase, flowType]);
+
+  // Suivi réel du statut de la réservation (Balade) : c'est le vrai
+  // promeneur, pas un minuteur local, qui fait avancer cet écran.
+  useEffect(() => {
+    if (flowType !== 'walk' || !matched) return;
+    let stopped = false;
+    const checkStatus = async () => {
+      if (!matchBookingIdRef.current) return;
+      const { data: row } = await supabase
+        .from('bookings').select('status').eq('id', matchBookingIdRef.current).single();
+      if (stopped || !row) return;
+      if (row.status === 'walking' && walkerPhase !== 'here' && walkerPhase !== 'done') {
+        setWalkerPhase('here');
+      } else if (row.status === 'completed' && walkerPhase !== 'done') {
+        setWalkerPhase('done');
+      }
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 4000);
+    return () => { stopped = true; clearInterval(interval); };
+  }, [flowType, matched, walkerPhase]);
 
   // Animation recherche (garde à domicile — mise en relation encore simulée)
   useEffect(() => {
@@ -351,14 +373,6 @@ export default function BookingFlow() {
       supabase.from('bookings').update({ status: 'cancelled' }).eq('id', matchBookingIdRef.current);
     }
     resetBooking();
-    navigate('/dashboard');
-  };
-
-  const startWalk = () => {
-    if (flowType === 'home') { setHomeConfirmed(true); return; }
-    if (matchBookingIdRef.current) {
-      supabase.from('bookings').update({ status: 'walking' }).eq('id', matchBookingIdRef.current);
-    }
     navigate('/dashboard');
   };
 
@@ -756,6 +770,18 @@ export default function BookingFlow() {
     );
   }
 
+  // ── BALADE TERMINÉE ──────────────────────────────────────────────────────
+  if (matched && walker && flowType === 'walk' && walkerPhase === 'done') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Balade terminée !</h2>
+        <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>{walker.name} a terminé la balade avec {selectedDogs.length > 1 ? 'vos chiens' : 'votre chien'}.</p>
+        <button onClick={goToDashboard} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>Retour à l'accueil</button>
+      </div>
+    );
+  }
+
   // ── WALKER EN ROUTE (BALADE) ──────────────────────────────────────────────
   if (matched && walker && flowType !== 'home') {
     const isArriving = walkerPhase === 'arriving';
@@ -767,7 +793,7 @@ export default function BookingFlow() {
           <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
           {!userCoords && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg, #E8F5F0, #D0EDE4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>🗺️</div>}
           <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', background: isHere ? '#1D9E75' : isArriving ? '#F59E0B' : '#fff', color: isHere || isArriving ? '#fff' : '#1D9E75', borderRadius: 20, padding: '8px 20px', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 12px rgba(0,0,0,0.15)', whiteSpace: 'nowrap', zIndex: 10, animation: isArriving || isHere ? 'pulse 1s infinite' : 'none' }}>
-            {isHere ? '🎉 Le promeneur est arrivé !' : isArriving ? '⚠️ Préparez-vous !' : `🚶 ${walker.name} arrive dans ${formatEta(etaSeconds)}`}
+            {isHere ? '🐾 La balade est en cours !' : isArriving ? '⚠️ Préparez-vous !' : `🚶 ${walker.name} arrive dans ${formatEta(etaSeconds)}`}
           </div>
         </div>
         <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
@@ -779,7 +805,7 @@ export default function BookingFlow() {
             </div>
             <div style={{ textAlign: 'center', background: isHere ? '#E1F5EE' : isArriving ? '#FFF8E1' : '#F0F0F0', borderRadius: 12, padding: '8px 14px' }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: isHere ? '#1D9E75' : isArriving ? '#F59E0B' : '#555' }}>{isHere ? '✅' : formatEta(etaSeconds)}</div>
-              <div style={{ fontSize: 11, color: '#888' }}>{isHere ? 'Arrivé' : 'restant'}</div>
+              <div style={{ fontSize: 11, color: '#888' }}>{isHere ? 'En cours' : 'restant'}</div>
             </div>
           </div>
           <button onClick={() => setShowChat(true)} style={{ width: '100%', padding: '11px', background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12, fontFamily: 'inherit' }}>
@@ -790,7 +816,9 @@ export default function BookingFlow() {
             <div style={{ marginBottom: 4 }}>🐾 {WALK_SERVICES.find(s => s.id === walkService)?.name} · {DURATIONS.find(d => d.id === walkDuration)?.label}</div>
           </div>
           {isHere ? (
-            <button onClick={startWalk} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 10, animation: 'slidein 0.3s ease' }}>🐾 Confirmer le départ de la balade</button>
+            <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '14px 16px', marginBottom: 12, fontSize: 14, color: '#0F6E56', fontWeight: 600, textAlign: 'center', animation: 'slidein 0.3s ease' }}>
+              🐾 {walker.name} a récupéré votre chien, la balade est en cours. Vous serez prévenu(e) à la fin !
+            </div>
           ) : (
             <div style={{ background: isArriving ? '#FFF8E1' : '#E1F5EE', borderRadius: 12, padding: '12px 16px', marginBottom: 12, fontSize: 13, color: isArriving ? '#F59E0B' : '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
               {isArriving ? '⚠️ Préparez votre chien !' : `🚶 ${walker.name} est en route vers vous...`}

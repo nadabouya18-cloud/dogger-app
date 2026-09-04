@@ -308,7 +308,9 @@ export default function BookingFlow() {
       const { data: row } = await supabase
         .from('bookings').select('status').eq('id', matchBookingIdRef.current).single();
       if (stopped || !row) return;
-      if (row.status === 'walking' && walkerPhase !== 'here' && walkerPhase !== 'done') {
+      if (row.status === 'walker_arrived' && walkerPhase !== 'awaiting_confirm' && walkerPhase !== 'here' && walkerPhase !== 'done') {
+        setWalkerPhase('awaiting_confirm');
+      } else if (row.status === 'walking' && walkerPhase !== 'here' && walkerPhase !== 'done') {
         setWalkerPhase('here');
       } else if (row.status === 'completed' && walkerPhase !== 'done') {
         setWalkerPhase('done');
@@ -388,6 +390,15 @@ export default function BookingFlow() {
 
   const confirmHandover = () => {
     setDogHandedOver(true);
+  };
+
+  // Le promeneur a signalé son arrivée — on confirme lui avoir remis le
+  // chien, ce qui démarre la balade pour de vrai des deux côtés.
+  const confirmDogHandover = async () => {
+    if (matchBookingIdRef.current) {
+      await supabase.from('bookings').update({ status: 'walking' }).eq('id', matchBookingIdRef.current);
+    }
+    setWalkerPhase('here');
   };
 
   const sendMessage = () => {
@@ -804,6 +815,33 @@ export default function BookingFlow() {
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Balade terminée !</h2>
         <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>{walker.name} a terminé la balade avec {selectedDogs.length > 1 ? 'vos chiens' : 'votre chien'}.</p>
         <button onClick={goToDashboard} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>Retour à l'accueil</button>
+      </div>
+    );
+  }
+
+  // ── CONFIRMATION DE LA REMISE DU CHIEN (BALADE) ─────────────────────────────
+  if (matched && walker && flowType === 'walk' && walkerPhase === 'awaiting_confirm') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
+        <div style={{ fontSize: 56, marginBottom: 16, animation: 'pulse 1.5s infinite' }}>🐾</div>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>{walker.name} est arrivé !</h2>
+        <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>Confirmez que vous lui avez bien remis {selectedDogs.length > 1 ? 'vos chiens' : 'votre chien'} pour démarrer la balade.</p>
+        <button onClick={confirmDogHandover} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 10 }}>🐾 Confirmer la remise de mon chien</button>
+        <button onClick={() => setShowCancel(true)} style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>❌ Annuler la balade</button>
+        {showCancel && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100 }}>
+            <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '28px 24px 40px', width: '100%', maxWidth: 430, textAlign: 'left' }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Annuler la balade</h3>
+              <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Pourquoi souhaitez-vous annuler ?</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                {CANCEL_REASONS.map(r => <div key={r} onClick={() => setCancelReason(r)} style={{ padding: '14px 16px', borderRadius: 12, border: cancelReason === r ? '2px solid #E24B4A' : '1.5px solid #E8E8E8', background: cancelReason === r ? '#FFF0F0' : '#FAFAFA', cursor: 'pointer', fontSize: 14, color: cancelReason === r ? '#E24B4A' : '#555', fontWeight: cancelReason === r ? 600 : 400 }}>{r}</div>)}
+              </div>
+              <button disabled={!cancelReason} onClick={handleCancelConfirm} style={{ width: '100%', padding: 16, background: cancelReason ? '#E24B4A' : '#F0F0F0', color: cancelReason ? '#fff' : '#AAA', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: cancelReason ? 'pointer' : 'default', marginBottom: 10, fontFamily: 'inherit' }}>Confirmer l'annulation</button>
+              <button onClick={() => { setShowCancel(false); setCancelReason(''); }} style={{ width: '100%', padding: 13, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Garder ma balade</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

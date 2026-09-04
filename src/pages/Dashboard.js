@@ -4,13 +4,12 @@ import { supabase } from '../supabase';
 
 const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
 
-const WALK_STEPS = [
-  'Thomas est en route vers vous...',
-  'Thomas est arrivé ! 🎉',
-  'La balade a commencé 🐾',
-  'Votre chien profite de sa balade !',
-  'Presque terminé...',
-  'Votre chien est rentré ✅',
+// Étapes réelles d'une balade — dérivées du vrai statut de la réservation
+// (accepted / walker_arrived / walking), plus aucune étape inventée.
+const LIVE_STEPS = [
+  { status: 'accepted', label: 'Le promeneur est en route vers vous' },
+  { status: 'walker_arrived', label: 'Le promeneur est arrivé' },
+  { status: 'walking', label: 'La balade est en cours 🐾' },
 ];
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
@@ -19,10 +18,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [tab, setTab] = useState(location.hash === '#live' ? 'live' : 'home');
-  const [activeWalk, setActiveWalk] = useState(false);
-  const [walkStep] = useState(2);
+  const [activeBooking, setActiveBooking] = useState(null);
   const [walkTime, setWalkTime] = useState(0);
-  const [walkDuration, setWalkDuration] = useState(30);
   const [selectedDog, setSelectedDog] = useState(null);
   const [profile, setProfile] = useState(null);
   const [dogs, setDogs] = useState([]);
@@ -39,31 +36,61 @@ export default function Dashboard() {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const walkerMarkerRef = useRef(null);
-  const routePathRef = useRef([]);
-  const walkTimerRef = useRef(null);
 
   useEffect(() => {
     if (location.hash === '#live') setTab('live');
   }, [location.hash]);
 
-useEffect(() => {
-    const duration = localStorage.getItem('dogger_walk_active');
-    const startTime = localStorage.getItem('dogger_walk_start');
-    if (duration && startTime) {
-      const elapsed = Math.floor((Date.now() - parseInt(startTime)) / 1000);
-      const totalSeconds = parseInt(duration) * 60;
-      // Si la balade est terminée (temps écoulé > durée totale), on nettoie
-      if (elapsed >= totalSeconds) {
-        ['dogger_walk_active','dogger_walk_start','dogger_walk_service','dogger_walk_address','dogger_walker','dogger_walker_eta','dogger_walker_phase','dogger_walker_start_coords'].forEach(k => localStorage.removeItem(k));
-      } else {
-        setActiveWalk(true);
-        setWalkDuration(parseInt(duration));
-        setWalkTime(elapsed);
-      }
-    }
-    const coords = localStorage.getItem('dogger_user_coords');
-    if (coords) setUserCoords(JSON.parse(coords));
+  // On va chercher la vraie balade en cours (si vous en avez une) — plus
+  // aucun mock ici : ce qui s'affiche vient directement de la réservation
+  // que le promeneur a réellement acceptée.
+  useEffect(() => {
+    let stopped = false;
+    const checkActiveBooking = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('owner_id', session.user.id)
+        .in('status', ['accepted', 'walker_arrived', 'walking'])
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (stopped) return;
+      setActiveBooking(data && data.length > 0 ? data[0] : null);
+    };
+    checkActiveBooking();
+    const interval = setInterval(checkActiveBooking, 5000);
+    return () => { stopped = true; clearInterval(interval); };
   }, []);
+
+  // Chrono de la balade : recalculé sur la vraie heure de départ à chaque
+  // tick, pour rester juste même après une mise en veille du téléphone.
+  useEffect(() => {
+    if (activeBooking?.status !== 'walking' || !activeBooking.walk_started_at) {
+      setWalkTime(0);
+      return;
+    }
+    const startedAt = new Date(activeBooking.walk_started_at).getTime();
+    const tick = () => setWalkTime(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [activeBooking?.status, activeBooking?.walk_started_at]);
+
+  // Position du promeneur en direct (géolocalisation réelle envoyée par le
+  // promeneur pendant la balade) + position approximative de l'adresse de
+  // la balade, pour centrer la carte sans redemander la géoloc du client.
+  useEffect(() => {
+    if (!activeBooking?.address || !window.google) return;
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ address: activeBooking.address }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        setUserCoords({ lat: loc.lat(), lng: loc.lng() });
+      }
+    });
+  }, [activeBooking?.address]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -92,12 +119,6 @@ useEffect(() => {
     loadData();
   }, [navigate]);
 
-  useEffect(() => {
-    if (!activeWalk) return;
-    walkTimerRef.current = setInterval(() => setWalkTime(s => s + 1), 1000);
-    return () => clearInterval(walkTimerRef.current);
-  }, [activeWalk]);
-
   const initLiveMap = useCallback(() => {
     if (!mapRef.current || !window.google) return;
     if (mapInstanceRef.current) return;
@@ -110,54 +131,44 @@ useEffect(() => {
       ]
     });
     mapInstanceRef.current = map;
-    new window.google.maps.Marker({
-      position: center, map,
-      icon: { url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new window.google.maps.Size(40, 40) },
-    });
-    let walkerStart = JSON.parse(localStorage.getItem('dogger_walker_start_coords') || 'null');
-    if (!walkerStart) {
-      walkerStart = { lat: center.lat + 0.003, lng: center.lng + 0.003 };
-      localStorage.setItem('dogger_walker_start_coords', JSON.stringify(walkerStart));
+    if (userCoords) {
+      new window.google.maps.Marker({
+        position: userCoords, map,
+        icon: { url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new window.google.maps.Size(40, 40) },
+        title: 'Chez vous',
+      });
     }
-    const walkerMarker = new window.google.maps.Marker({
-      position: walkerStart, map,
-      icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) },
-      title: 'Thomas M.'
-    });
-    walkerMarkerRef.current = walkerMarker;
-    const directionsService = new window.google.maps.DirectionsService();
-    const directionsRenderer = new window.google.maps.DirectionsRenderer({
-      map, suppressMarkers: true,
-      polylineOptions: { strokeColor: '#1D9E75', strokeWeight: 4, strokeOpacity: 0.7 }
-    });
-    directionsService.route({
-      origin: walkerStart, destination: center,
-      travelMode: window.google.maps.TravelMode.WALKING,
-    }, (result, status) => {
-      if (status === 'OK') {
-        directionsRenderer.setDirections(result);
-        const path = result.routes[0].overview_path;
-        routePathRef.current = path;
-        let idx = 0;
-        const totalSteps = path.length;
-        const intervalMs = (walkDuration * 60 * 1000) / totalSteps;
-        const moveInterval = setInterval(() => {
-          idx++;
-          if (idx >= totalSteps) { clearInterval(moveInterval); return; }
-          if (walkerMarkerRef.current) {
-            walkerMarkerRef.current.setPosition(path[idx]);
-            map.panTo(path[idx]);
-          }
-        }, Math.max(intervalMs, 2000));
-      }
-    });
-  }, [userCoords, walkDuration]);
+  }, [userCoords]);
 
   useEffect(() => {
-    if (tab === 'live' && activeWalk && mapRef.current && !mapInstanceRef.current) {
+    if (tab === 'live' && activeBooking && mapRef.current && !mapInstanceRef.current) {
       setTimeout(initLiveMap, 300);
     }
-  }, [tab, activeWalk, initLiveMap]);
+    // La carte doit être reconstruite si on quitte puis revient sur l'onglet
+    if (!activeBooking) mapInstanceRef.current = null;
+  }, [tab, activeBooking, initLiveMap]);
+
+  // Le marqueur du promeneur suit sa vraie position, envoyée en direct
+  // pendant la balade (voir WalkerHome.js côté promeneur).
+  useEffect(() => {
+    if (!mapInstanceRef.current || !window.google) return;
+    if (activeBooking?.walker_lat == null || activeBooking?.walker_lng == null) return;
+    const pos = { lat: activeBooking.walker_lat, lng: activeBooking.walker_lng };
+    if (!walkerMarkerRef.current) {
+      walkerMarkerRef.current = new window.google.maps.Marker({
+        position: pos, map: mapInstanceRef.current,
+        icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) },
+        title: activeBooking.walker_name || 'Promeneur',
+      });
+    } else {
+      walkerMarkerRef.current.setPosition(pos);
+    }
+    mapInstanceRef.current.panTo(pos);
+  }, [activeBooking?.walker_lat, activeBooking?.walker_lng, activeBooking?.walker_name]);
+
+  useEffect(() => {
+    if (!activeBooking) { walkerMarkerRef.current = null; }
+  }, [activeBooking]);
 
   const handleSaveProfile = async () => {
     setEditLoading(true);
@@ -203,7 +214,7 @@ useEffect(() => {
   };
 
   const getRemainingTime = () => {
-    const total = walkDuration * 60;
+    const total = (activeBooking?.duration || 0) * 60;
     const remaining = total - walkTime;
     if (remaining <= 0) return 'Terminée !';
     const m = Math.floor(remaining / 60);
@@ -211,11 +222,21 @@ useEffect(() => {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  // Texte adapté au vrai statut de la réservation — pas de fausse étape
+  // qu'on ne pourrait pas garantir.
+  const activeWalkStatusLabel = (() => {
+    if (!activeBooking) return '';
+    const walkerLabel = activeBooking.walker_name || 'Le promeneur';
+    if (activeBooking.status === 'walking') return `${walkerLabel} est avec ${activeBooking.dog_name || 'votre chien'} 🐾`;
+    if (activeBooking.status === 'walker_arrived') return `${walkerLabel} est arrivé, en attente de votre confirmation`;
+    return `${walkerLabel} est en route pour venir chercher ${activeBooking.dog_name || 'votre chien'}`;
+  })();
+
   const displayName = profile
     ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
     : '...';
 
-  const dogName = dogs[0]?.name || 'Votre chien';
+  const dogName = activeBooking?.dog_name || dogs[0]?.name || 'Votre chien';
   const photoUrl = newOwnerPhoto || profile?.photo_url;
 
   if (loading) {
@@ -252,13 +273,16 @@ useEffect(() => {
           </div>
         </div>
 
-        {activeWalk && (
+        {activeBooking && (
           <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 14, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
             onClick={() => setTab('live')}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#7FFFD4', animation: 'pulse 1s infinite', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{dogName} est en balade 🐾</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>Thomas M. · {formatTime(walkTime)} · reste {getRemainingTime()}</div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
+                {activeBooking.walker_name || 'Promeneur'}
+                {activeBooking.status === 'walking' ? ` · ${formatTime(walkTime)} · reste ${getRemainingTime()}` : ' · en route'}
+              </div>
             </div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>Suivre →</div>
           </div>
@@ -286,12 +310,12 @@ useEffect(() => {
         {tab === 'home' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
             {/* CTA Commander */}
-            {activeWalk ? (
+            {activeBooking ? (
               <div onClick={() => setTab('live')}
                 style={{ background: 'linear-gradient(135deg, #0F6E56, #0A4D3A)', borderRadius: 18, padding: '20px', marginBottom: 20, cursor: 'pointer' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>🐾</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Balade en cours</div>
-                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginBottom: 14 }}>{dogName} se promène avec Thomas M.</div>
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginBottom: 14 }}>{activeWalkStatusLabel}</div>
                 <div style={{ background: '#fff', borderRadius: 10, padding: '10px 16px', display: 'inline-block' }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>📍 Suivre en direct →</span>
                 </div>
@@ -376,51 +400,58 @@ useEffect(() => {
         {/* EN DIRECT */}
         {tab === 'live' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
-            {activeWalk ? (
+            {activeBooking ? (
               <div>
                 <div style={{ position: 'relative', marginBottom: 16 }}>
                   <div ref={mapRef} style={{ height: 280, borderRadius: 18, overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }} />
+                  {activeBooking.walker_lat == null && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg, #E8F5F0, #D0EDE4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center', padding: 20 }}>
+                      En attente de la position du promeneur…
+                    </div>
+                  )}
                   <div style={{ position: 'absolute', top: 12, right: 12, background: '#1D9E75', borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#fff', animation: 'pulse 2s infinite', zIndex: 10 }}>
                     🔴 Live
                   </div>
-                  <div style={{ position: 'absolute', top: 12, left: 12, background: '#fff', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', zIndex: 10 }}>
-                    {formatTime(walkTime)} ⏱️
-                  </div>
+                  {activeBooking.status === 'walking' && (
+                    <div style={{ position: 'absolute', top: 12, left: 12, background: '#fff', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', zIndex: 10 }}>
+                      {formatTime(walkTime)} ⏱️
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
                     <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🧑</div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>Thomas M.</div>
-                      <div style={{ fontSize: 13, color: '#1D9E75' }}>⭐ 4.9 · 127 balades</div>
-                    </div>
-                    <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '8px 14px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>{getRemainingTime()}</div>
-                      <div style={{ fontSize: 11, color: '#888' }}>restant</div>
-                    </div>
-                  </div>
-                  <div style={{ background: '#F0F0F0', borderRadius: 10, height: 6, marginBottom: 12 }}>
-                    <div style={{ width: `${Math.min(100, (walkTime / (walkDuration * 60)) * 100)}%`, background: '#1D9E75', borderRadius: 10, height: 6, transition: 'width 1s linear' }} />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {WALK_STEPS.map((s, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: i > walkStep ? 0.3 : 1 }}>
-                        <div style={{ width: 20, height: 20, borderRadius: '50%', background: i <= walkStep ? '#1D9E75' : '#E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', flexShrink: 0, fontWeight: 700 }}>
-                          {i < walkStep ? '✓' : i === walkStep ? '●' : ''}
-                        </div>
-                        <span style={{ fontSize: 13, fontWeight: i === walkStep ? 700 : 400, color: i === walkStep ? '#1D9E75' : '#555' }}>{s}</span>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>{activeBooking.walker_name || 'Promeneur'}</div>
+                      <div style={{ fontSize: 13, color: '#1D9E75' }}>
+                        {activeBooking.walker_rating != null ? `⭐ ${activeBooking.walker_rating} · ${activeBooking.walker_total_walks || 0} balades` : 'Nouveau promeneur'}
                       </div>
-                    ))}
+                    </div>
+                    {activeBooking.status === 'walking' && (
+                      <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '8px 14px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#1D9E75' }}>{getRemainingTime()}</div>
+                        <div style={{ fontSize: 11, color: '#888' }}>restant</div>
+                      </div>
+                    )}
                   </div>
-                </div>
-
-                <div style={{ background: '#fff', borderRadius: 16, padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>📸 Photos reçues</div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {['🌳', '🌿', '🐕'].map((e, i) => (
-                      <div key={i} style={{ flex: 1, height: 80, background: '#E1F5EE', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>{e}</div>
-                    ))}
+                  {activeBooking.status === 'walking' && (
+                    <div style={{ background: '#F0F0F0', borderRadius: 10, height: 6, marginBottom: 12 }}>
+                      <div style={{ width: `${Math.min(100, (walkTime / ((activeBooking.duration || 1) * 60)) * 100)}%`, background: '#1D9E75', borderRadius: 10, height: 6, transition: 'width 1s linear' }} />
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {LIVE_STEPS.map((s, i) => {
+                      const currentIdx = LIVE_STEPS.findIndex(x => x.status === activeBooking.status);
+                      return (
+                        <div key={s.status} style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: i > currentIdx ? 0.3 : 1 }}>
+                          <div style={{ width: 20, height: 20, borderRadius: '50%', background: i <= currentIdx ? '#1D9E75' : '#E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', flexShrink: 0, fontWeight: 700 }}>
+                            {i < currentIdx ? '✓' : i === currentIdx ? '●' : ''}
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: i === currentIdx ? 700 : 400, color: i === currentIdx ? '#1D9E75' : '#555' }}>{s.label}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

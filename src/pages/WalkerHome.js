@@ -126,6 +126,26 @@ export default function WalkerHome() {
    return () => { cancelled = true; clearInterval(interval); };
  }, [available, phase, walkerId]);
 
+ // Attendre que le propriétaire confirme la remise de son chien avant de
+ // vraiment démarrer la balade (le chrono, les photos, etc.)
+ useEffect(() => {
+   if (phase !== 'arrived' || !mission?.bookingId) return;
+   let cancelled = false;
+   const checkConfirmed = async () => {
+     const { data } = await supabase
+       .from('bookings').select('status').eq('id', mission.bookingId).single();
+     if (cancelled || !data) return;
+     if (data.status === 'walking') {
+       setWalkTime(0);
+       mapInstanceRef.current = null;
+       setPhase('walking');
+     }
+   };
+   checkConfirmed();
+   const interval = setInterval(checkConfirmed, 3000);
+   return () => { cancelled = true; clearInterval(interval); };
+ }, [phase, mission]);
+
  // Partager sa position pendant qu'on est disponible, pour qu'on ne nous
  // envoie pas des demandes à l'autre bout de la ville
  useEffect(() => {
@@ -259,12 +279,12 @@ export default function WalkerHome() {
    setMission(null);
  };
 
- const startWalk = () => {
-   setWalkTime(0);
-   mapInstanceRef.current = null;
-   setPhase('walking');
+ // On signale son arrivée, mais la balade ne démarre pour de vrai que
+ // quand le propriétaire confirme lui avoir remis son chien.
+ const confirmArrival = async () => {
+   setPhase('arrived');
    if (mission?.bookingId) {
-     supabase.from('bookings').update({ status: 'walking' }).eq('id', mission.bookingId);
+     await supabase.from('bookings').update({ status: 'walker_arrived' }).eq('id', mission.bookingId);
    }
  };
 
@@ -487,12 +507,14 @@ export default function WalkerHome() {
          </div>
        )}
 
-       {(phase === 'navigating' || phase === 'walking') && (
+       {(phase === 'navigating' || phase === 'arrived' || phase === 'walking') && (
          <div style={{ marginTop: 12, background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
            onClick={() => setTab('mission')}>
            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#7FFFD4', animation: 'pulse 1s infinite' }} />
            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: '#fff' }}>
-             {phase === 'navigating' ? '🚶 En route vers Nada B.' : `🐾 Balade en cours — ${formatTime(walkTime)}`}
+             {phase === 'navigating' ? `🚶 En route vers ${mission?.owner || 'le client'}`
+               : phase === 'arrived' ? '⏳ En attente de confirmation'
+               : `🐾 Balade en cours — ${formatTime(walkTime)}`}
            </div>
            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>Voir →</div>
          </div>
@@ -533,14 +555,16 @@ export default function WalkerHome() {
              ))}
            </div>
 
-           {(phase === 'navigating' || phase === 'walking') && mission && (
+           {(phase === 'navigating' || phase === 'arrived' || phase === 'walking') && mission && (
              <div style={{ background: '#E1F5EE', borderRadius: 16, padding: '16px', marginBottom: 16, border: '1.5px solid #1D9E75', cursor: 'pointer' }}
                onClick={() => setTab('mission')}>
                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', animation: 'pulse 1s infinite', flexShrink: 0 }} />
                  <div style={{ flex: 1 }}>
                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0F6E56' }}>
-                     {phase === 'navigating' ? '🚶 En route vers le client' : `🐾 Balade en cours — ${formatTime(walkTime)}`}
+                     {phase === 'navigating' ? '🚶 En route vers le client'
+                       : phase === 'arrived' ? '⏳ En attente de confirmation'
+                       : `🐾 Balade en cours — ${formatTime(walkTime)}`}
                    </div>
                    <div style={{ fontSize: 12, color: '#555' }}>{mission.dog} · {mission.owner}</div>
                  </div>
@@ -586,7 +610,9 @@ export default function WalkerHome() {
                <div style={{ position: 'relative', marginBottom: 16 }}>
                  <div ref={mapRef} style={{ height: 240, borderRadius: 18, overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', background: '#E8F5F0' }} />
                  <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', background: '#fff', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', whiteSpace: 'nowrap', zIndex: 10 }}>
-                   {phase === 'navigating' ? '🚶 En route vers le client' : `🐾 Balade — ${formatTime(walkTime)}`}
+                   {phase === 'navigating' ? '🚶 En route vers le client'
+                     : phase === 'arrived' ? '⏳ En attente de confirmation'
+                     : `🐾 Balade — ${formatTime(walkTime)}`}
                  </div>
                </div>
 
@@ -649,10 +675,15 @@ export default function WalkerHome() {
                )}
 
                {phase === 'navigating' && (
-                 <button onClick={startWalk}
+                 <button onClick={confirmArrival}
                    style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.4)' }}>
-                   🐾 Je suis arrivé — Démarrer la balade
+                   🐾 Je suis arrivé
                  </button>
+               )}
+               {phase === 'arrived' && (
+                 <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '14px 16px', textAlign: 'center', fontSize: 13, color: '#B8860B', fontWeight: 600, animation: 'pulse 2s infinite' }}>
+                   ⏳ En attente que {mission.owner} confirme vous avoir remis {mission.dog}...
+                 </div>
                )}
                {phase === 'walking' && (
                  <button onClick={endWalk}
@@ -751,7 +782,7 @@ export default function WalkerHome() {
        ].map(t => (
          <button key={t.id} onClick={() => setTab(t.id)}
            style={{ flex: 1, border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 0', fontFamily: 'inherit', position: 'relative' }}>
-           {t.id === 'mission' && (phase === 'navigating' || phase === 'walking') && (
+           {t.id === 'mission' && (phase === 'navigating' || phase === 'arrived' || phase === 'walking') && (
              <div style={{ position: 'absolute', top: 4, right: '25%', width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', animation: 'pulse 1s infinite' }} />
            )}
            <div style={{ fontSize: 20, marginBottom: 2 }}>{t.icon}</div>

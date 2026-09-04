@@ -16,12 +16,16 @@ export default function WalkerHome() {
  const [missionTimer, setMissionTimer] = useState(30);
  const [walkTime, setWalkTime] = useState(0);
  const [history, setHistory] = useState([]);
- const [photos, setPhotos] = useState([]);
  const [rating, setRating] = useState(0);
  const [showRating, setShowRating] = useState(false);
  const [walkerId, setWalkerId] = useState(null);
  const [locationStatus, setLocationStatus] = useState('idle'); // idle | pending | shared | denied | unsupported | error
  const [showCancelledNotice, setShowCancelledNotice] = useState(false);
+ const [messages, setMessages] = useState([]);
+ const [newMessage, setNewMessage] = useState('');
+ const [showChat, setShowChat] = useState(false);
+ const [sendingPhoto, setSendingPhoto] = useState(false);
+ const chatEndRef = useRef(null);
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
  const walkerTimerRef = useRef(null);
@@ -141,7 +145,6 @@ export default function WalkerHome() {
        clearInterval(walkerTimerRef.current);
        setPhase('idle');
        setMission(null);
-       setPhotos([]);
        setWalkTime(0);
        mapInstanceRef.current = null;
        setShowCancelledNotice(true);
@@ -159,6 +162,52 @@ export default function WalkerHome() {
    const interval = setInterval(checkBooking, 3000);
    return () => { stopped = true; clearInterval(interval); };
  }, [phase, mission, walkerId]);
+
+ // Vraie discussion avec le propriétaire pendant la mission (texte, photos,
+ // et petites notifs "pipi/caca") — un seul fil, partagé avec le vrai
+ // propriétaire, plus de fausses réponses automatiques.
+ const loadMessages = useCallback(async () => {
+   if (!mission?.bookingId) return;
+   const { data } = await supabase
+     .from('booking_messages').select('*').eq('booking_id', mission.bookingId)
+     .order('created_at', { ascending: true });
+   if (data) setMessages(data);
+ }, [mission?.bookingId]);
+
+ useEffect(() => {
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking'].includes(phase)) {
+     setMessages([]);
+     return;
+   }
+   loadMessages();
+   const interval = setInterval(loadMessages, 4000);
+   return () => clearInterval(interval);
+ }, [mission?.bookingId, phase, loadMessages]);
+
+ useEffect(() => {
+   if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+ }, [messages, showChat]);
+
+ const sendMessage = async () => {
+   const text = newMessage.trim();
+   if (!text || !mission?.bookingId || !walkerId) return;
+   setNewMessage('');
+   await supabase.from('booking_messages').insert({
+     booking_id: mission.bookingId, sender_id: walkerId, kind: 'text', text,
+   });
+   loadMessages();
+ };
+
+ // Boutons "pipi / caca" — une notification sympa envoyée dans le fil,
+ // pour prévenir le propriétaire sans avoir à taper un message.
+ const sendPottyEvent = async (type) => {
+   if (!mission?.bookingId || !walkerId) return;
+   const text = type === 'pee' ? `💦 ${mission.dog} vient de faire pipi !` : `💩 ${mission.dog} vient de faire caca !`;
+   await supabase.from('booking_messages').insert({
+     booking_id: mission.bookingId, sender_id: walkerId, kind: 'event', text,
+   });
+   loadMessages();
+ };
 
  // Partager sa position pendant qu'on est disponible, pour qu'on ne nous
  // envoie pas des demandes à l'autre bout de la ville
@@ -190,6 +239,32 @@ export default function WalkerHome() {
    const interval = setInterval(shareLocation, 120000);
    return () => clearInterval(interval);
  }, [available, walkerId]);
+
+ // Partager sa position EN DIRECT sur la réservation en cours pendant une
+ // mission active, pour que le propriétaire puisse suivre la balade en
+ // temps réel de son côté (bien plus fréquent que le partage "disponible").
+ useEffect(() => {
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking'].includes(phase)) return;
+   if (!navigator.geolocation) return;
+   let stopped = false;
+   const shareLiveLocation = () => {
+     navigator.geolocation.getCurrentPosition(
+       async (pos) => {
+         if (stopped) return;
+         await supabase.from('bookings').update({
+           walker_lat: pos.coords.latitude,
+           walker_lng: pos.coords.longitude,
+           walker_location_updated_at: new Date().toISOString(),
+         }).eq('id', mission.bookingId);
+       },
+       () => {},
+       { timeout: 10000 }
+     );
+   };
+   shareLiveLocation();
+   const interval = setInterval(shareLiveLocation, 10000);
+   return () => { stopped = true; clearInterval(interval); };
+ }, [mission, phase]);
 
  // Timer mission 30s
  useEffect(() => {
@@ -274,7 +349,15 @@ export default function WalkerHome() {
  const acceptMission = async () => {
    clearInterval(missionTimerRef.current);
    if (mission?.bookingId) {
-     await supabase.from('bookings').update({ status: 'accepted' }).eq('id', mission.bookingId);
+     // On enregistre qui on est directement sur la réservation : le
+     // propriétaire pourra ainsi voir un vrai nom/note sans qu'on ait
+     // besoin de lui ouvrir l'accès à la fiche complète du promeneur.
+     await supabase.from('bookings').update({
+       status: 'accepted',
+       walker_name: displayName,
+       walker_rating: avgRating ? Number(avgRating) : null,
+       walker_total_walks: totalWalks,
+     }).eq('id', mission.bookingId);
    }
    if (walkerId) {
      await supabase.from('walker_profiles').update({ available: false }).eq('id', walkerId);
@@ -307,7 +390,6 @@ export default function WalkerHome() {
    setAvailable(true);
    setPhase('idle');
    setMission(null);
-   setPhotos([]);
    setWalkTime(0);
    mapInstanceRef.current = null;
  };
@@ -321,12 +403,28 @@ export default function WalkerHome() {
    }
  };
 
- const handlePhoto = (e) => {
+ // Photo prise sur le moment (l'attribut "capture" force l'appareil photo
+ // plutôt que la pioche dans d'anciennes photos), envoyée dans le fil de
+ // discussion pour que le propriétaire la voie tout de suite.
+ const handlePhoto = async (e) => {
    const file = e.target.files[0];
-   if (!file) return;
-   const reader = new FileReader();
-   reader.onload = (ev) => setPhotos(p => [...p, ev.target.result]);
-   reader.readAsDataURL(file);
+   e.target.value = '';
+   if (!file || !mission?.bookingId || !walkerId) return;
+   setSendingPhoto(true);
+   try {
+     const path = `${mission.bookingId}/${Date.now()}-${Math.round(Math.random() * 1e6)}.jpg`;
+     const { error: uploadError } = await supabase.storage.from('walk-photos').upload(path, file, {
+       contentType: file.type || 'image/jpeg',
+     });
+     if (uploadError) { console.error(uploadError); return; }
+     const { data: pub } = supabase.storage.from('walk-photos').getPublicUrl(path);
+     await supabase.from('booking_messages').insert({
+       booking_id: mission.bookingId, sender_id: walkerId, kind: 'photo', image_url: pub.publicUrl,
+     });
+     loadMessages();
+   } finally {
+     setSendingPhoto(false);
+   }
  };
 
  const endWalk = () => {
@@ -372,7 +470,6 @@ export default function WalkerHome() {
    setShowRating(false);
    setPhase('idle');
    setMission(null);
-   setPhotos([]);
    setRating(0);
    setWalkTime(0);
    mapInstanceRef.current = null;
@@ -447,6 +544,44 @@ export default function WalkerHome() {
              style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
              ❌ Refuser
            </button>
+         </div>
+       </div>
+     )}
+
+     {/* DISCUSSION AVEC LE PROPRIÉTAIRE */}
+     {showChat && mission && (
+       <div style={{ position: 'fixed', inset: 0, background: '#F8FAF9', zIndex: 400, display: 'flex', flexDirection: 'column', maxWidth: 430, margin: '0 auto' }}>
+         <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 20px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+           <button onClick={() => setShowChat(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer' }}>← Retour</button>
+           <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{mission.ownerPhoto ? <img src={mission.ownerPhoto} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : '👤'}</div>
+           <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{mission.owner}</div>
+         </div>
+         <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+           {messages.length === 0 && (
+             <div style={{ textAlign: 'center', color: '#AAA', fontSize: 13, marginTop: 20 }}>Aucun message pour l'instant</div>
+           )}
+           {messages.map(msg => (
+             msg.kind === 'event' ? (
+               <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>
+             ) : msg.kind === 'photo' ? (
+               <div key={msg.id} style={{ alignSelf: msg.sender_id === walkerId ? 'flex-end' : 'flex-start' }}>
+                 <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
+               </div>
+             ) : (
+               <div key={msg.id} style={{ display: 'flex', justifyContent: msg.sender_id === walkerId ? 'flex-end' : 'flex-start' }}>
+                 <div style={{ maxWidth: '75%', background: msg.sender_id === walkerId ? '#1D9E75' : '#fff', color: msg.sender_id === walkerId ? '#fff' : '#1A1A1A', borderRadius: msg.sender_id === walkerId ? '18px 18px 4px 18px' : '18px 18px 18px 4px', padding: '10px 14px', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                   {msg.text}
+                 </div>
+               </div>
+             )
+           ))}
+           <div ref={chatEndRef} />
+         </div>
+         <div style={{ padding: '12px 16px', background: '#fff', borderTop: '1px solid #F0F0F0', display: 'flex', gap: 10, alignItems: 'center' }}>
+           <input style={{ flex: 1, padding: '12px 14px', borderRadius: 24, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA' }}
+             placeholder="Écrire un message..." value={newMessage}
+             onChange={e => setNewMessage(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()} />
+           <button onClick={sendMessage} style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>➤</button>
          </div>
        </div>
      )}
@@ -700,23 +835,28 @@ export default function WalkerHome() {
                  )}
                </div>
 
-               {/* Photos */}
-               {phase === 'walking' && (
+               {/* Discussion, photos & petites notifs */}
+               {['navigating', 'arrived', 'walking'].includes(phase) && (
                  <div style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                   <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>📸 Envoyer des photos au propriétaire</div>
-                   <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 4 }}>
-                     {photos.map((p, i) => (
-                       <img key={i} src={p} alt="balade" style={{ width: 72, height: 72, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }} />
-                     ))}
-                     <div onClick={() => document.getElementById('walkerPhoto').click()}
-                       style={{ width: 72, height: 72, borderRadius: 12, background: '#F0F9F5', border: '1.5px dashed #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, fontSize: 24 }}>
-                       📷
-                     </div>
-                   </div>
-                   <input id="walkerPhoto" type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhoto} />
-                   {photos.length > 0 && (
-                     <div style={{ fontSize: 12, color: '#1D9E75', fontWeight: 600 }}>
-                       ✅ {photos.length} photo{photos.length > 1 ? 's' : ''} envoyée{photos.length > 1 ? 's' : ''} au propriétaire
+                   <button onClick={() => setShowChat(true)}
+                     style={{ width: '100%', padding: '11px', background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: phase === 'walking' ? 12 : 0, fontFamily: 'inherit' }}>
+                     💬 Discuter avec {mission.owner} {messages.length > 0 && <span style={{ marginLeft: 8, background: '#1D9E75', color: '#fff', borderRadius: 10, padding: '2px 8px', fontSize: 11 }}>{messages.length}</span>}
+                   </button>
+                   {phase === 'walking' && (
+                     <div style={{ display: 'flex', gap: 8 }}>
+                       <button onClick={() => sendPottyEvent('pee')}
+                         style={{ flex: 1, padding: 12, background: '#F0F9FF', color: '#0369A1', border: '1.5px solid #BAE6FD', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                         💦 Pipi fait
+                       </button>
+                       <button onClick={() => sendPottyEvent('poop')}
+                         style={{ flex: 1, padding: 12, background: '#FDF6EC', color: '#92600C', border: '1.5px solid #F5DEB3', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                         💩 Caca fait
+                       </button>
+                       <button onClick={() => document.getElementById('walkerPhoto').click()} disabled={sendingPhoto}
+                         style={{ flex: 1, padding: 12, background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: sendingPhoto ? 'default' : 'pointer', fontFamily: 'inherit', opacity: sendingPhoto ? 0.6 : 1 }}>
+                         {sendingPhoto ? '⏳...' : '📷 Photo'}
+                       </button>
+                       <input id="walkerPhoto" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
                      </div>
                    )}
                  </div>

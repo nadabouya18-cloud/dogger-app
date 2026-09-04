@@ -21,6 +21,7 @@ export default function WalkerHome() {
  const [showRating, setShowRating] = useState(false);
  const [walkerId, setWalkerId] = useState(null);
  const [locationStatus, setLocationStatus] = useState('idle'); // idle | pending | shared | denied | unsupported | error
+ const [showCancelledNotice, setShowCancelledNotice] = useState(false);
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
  const walkerTimerRef = useRef(null);
@@ -126,25 +127,38 @@ export default function WalkerHome() {
    return () => { cancelled = true; clearInterval(interval); };
  }, [available, phase, walkerId]);
 
- // Attendre que le propriétaire confirme la remise de son chien avant de
- // vraiment démarrer la balade (le chrono, les photos, etc.)
+ // Surveiller la réservation en cours : passer à la balade une fois que
+ // le propriétaire confirme la remise du chien, et — surtout — détecter
+ // si le propriétaire annule pendant qu'on est en route ou en attente.
  useEffect(() => {
-   if (phase !== 'arrived' || !mission?.bookingId) return;
-   let cancelled = false;
-   const checkConfirmed = async () => {
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking'].includes(phase)) return;
+   let stopped = false;
+   const checkBooking = async () => {
      const { data } = await supabase
        .from('bookings').select('status').eq('id', mission.bookingId).single();
-     if (cancelled || !data) return;
-     if (data.status === 'walking') {
+     if (stopped || !data) return;
+     if (data.status === 'cancelled') {
+       clearInterval(walkerTimerRef.current);
+       setPhase('idle');
+       setMission(null);
+       setPhotos([]);
+       setWalkTime(0);
+       mapInstanceRef.current = null;
+       setShowCancelledNotice(true);
+       if (walkerId) {
+         await supabase.from('walker_profiles').update({ available: true }).eq('id', walkerId);
+       }
+       setAvailable(true);
+     } else if (phase === 'arrived' && data.status === 'walking') {
        setWalkTime(0);
        mapInstanceRef.current = null;
        setPhase('walking');
      }
    };
-   checkConfirmed();
-   const interval = setInterval(checkConfirmed, 3000);
-   return () => { cancelled = true; clearInterval(interval); };
- }, [phase, mission]);
+   checkBooking();
+   const interval = setInterval(checkBooking, 3000);
+   return () => { stopped = true; clearInterval(interval); };
+ }, [phase, mission, walkerId]);
 
  // Partager sa position pendant qu'on est disponible, pour qu'on ne nous
  // envoie pas des demandes à l'autre bout de la ville
@@ -277,6 +291,25 @@ export default function WalkerHome() {
    }
    setPhase('idle');
    setMission(null);
+ };
+
+ // Le promeneur annule une mission déjà acceptée (empêchement, etc.) —
+ // le propriétaire doit en être informé, pas laissé sans nouvelles.
+ const cancelActiveMission = async () => {
+   if (!window.confirm('Annuler cette balade ? Le propriétaire en sera informé.')) return;
+   clearInterval(walkerTimerRef.current);
+   if (mission?.bookingId) {
+     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', mission.bookingId);
+   }
+   if (walkerId) {
+     await supabase.from('walker_profiles').update({ available: true }).eq('id', walkerId);
+   }
+   setAvailable(true);
+   setPhase('idle');
+   setMission(null);
+   setPhotos([]);
+   setWalkTime(0);
+   mapInstanceRef.current = null;
  };
 
  // On signale son arrivée, mais la balade ne démarre pour de vrai que
@@ -413,6 +446,21 @@ export default function WalkerHome() {
            <button onClick={refuseMission}
              style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
              ❌ Refuser
+           </button>
+         </div>
+       </div>
+     )}
+
+     {/* MODAL BALADE ANNULÉE PAR LE PROPRIÉTAIRE */}
+     {showCancelledNotice && (
+       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: 24 }}>
+         <div style={{ background: '#fff', borderRadius: 20, padding: '28px 24px', width: '100%', maxWidth: 360, textAlign: 'center' }}>
+           <div style={{ fontSize: 44, marginBottom: 12 }}>😕</div>
+           <h3 style={{ fontSize: 17, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Balade annulée</h3>
+           <p style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>Le propriétaire a annulé cette balade. Vous êtes de nouveau disponible pour recevoir des missions.</p>
+           <button onClick={() => setShowCancelledNotice(false)}
+             style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+             OK
            </button>
          </div>
        </div>
@@ -689,6 +737,12 @@ export default function WalkerHome() {
                  <button onClick={endWalk}
                    style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.4)' }}>
                    ✅ Terminer la balade
+                 </button>
+               )}
+               {(phase === 'navigating' || phase === 'arrived') && (
+                 <button onClick={cancelActiveMission}
+                   style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginTop: 10, fontFamily: 'inherit' }}>
+                   ❌ Annuler cette balade
                  </button>
                )}
              </div>

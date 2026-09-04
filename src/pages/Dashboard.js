@@ -14,6 +14,15 @@ const LIVE_STEPS = [
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
+const CANCEL_REASONS = [
+  "Je me suis trompé d'adresse",
+  "Je me suis trompé de durée",
+  "Le promeneur n'avance pas",
+  "Mon chien n'est plus disponible",
+  "J'ai trouvé une autre solution",
+  "Autre raison",
+];
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -33,9 +42,22 @@ export default function Dashboard() {
   const [editSuccess, setEditSuccess] = useState(false);
   const [newOwnerPhoto, setNewOwnerPhoto] = useState(null);
 
+  // Suivi de balade en direct
+  const [showCancelWalk, setShowCancelWalk] = useState(false);
+  const [cancelWalkReason, setCancelWalkReason] = useState('');
+  const [confirmingHandover, setConfirmingHandover] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [sendingPhoto, setSendingPhoto] = useState(false);
+  const [justFinished, setJustFinished] = useState(false);
+
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const walkerMarkerRef = useRef(null);
+  const ownerIdRef = useRef(null);
+  const chatEndRef = useRef(null);
+  const lastBookingStatusRef = useRef(null);
 
   useEffect(() => {
     if (location.hash === '#live') setTab('live');
@@ -49,6 +71,7 @@ export default function Dashboard() {
     const checkActiveBooking = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+      ownerIdRef.current = session.user.id;
       const { data } = await supabase
         .from('bookings')
         .select('*')
@@ -57,7 +80,15 @@ export default function Dashboard() {
         .order('created_at', { ascending: false })
         .limit(1);
       if (stopped) return;
-      setActiveBooking(data && data.length > 0 ? data[0] : null);
+      const found = data && data.length > 0 ? data[0] : null;
+      // Si la balade qu'on suivait vient de disparaître de la liste des
+      // balades actives alors qu'elle était en cours, c'est qu'elle vient
+      // d'être marquée terminée côté promeneur — petit message de clôture.
+      if (!found && lastBookingStatusRef.current === 'walking') {
+        setJustFinished(true);
+      }
+      lastBookingStatusRef.current = found?.status || null;
+      setActiveBooking(found);
     };
     checkActiveBooking();
     const interval = setInterval(checkActiveBooking, 5000);
@@ -91,6 +122,62 @@ export default function Dashboard() {
       }
     });
   }, [activeBooking?.address]);
+
+  // Vraie discussion avec le promeneur (texte, photos, notifs pipi/caca) —
+  // un seul fil partagé, plus de fausses réponses automatiques.
+  const loadMessages = useCallback(async () => {
+    if (!activeBooking?.id) return;
+    const { data } = await supabase
+      .from('booking_messages').select('*').eq('booking_id', activeBooking.id)
+      .order('created_at', { ascending: true });
+    if (data) setMessages(data);
+  }, [activeBooking?.id]);
+
+  useEffect(() => {
+    if (!activeBooking?.id) { setMessages([]); return; }
+    loadMessages();
+    const interval = setInterval(loadMessages, 4000);
+    return () => clearInterval(interval);
+  }, [activeBooking?.id, loadMessages]);
+
+  useEffect(() => {
+    if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, showChat]);
+
+  const sendMessage = async () => {
+    const text = newMessage.trim();
+    if (!text || !activeBooking?.id || !ownerIdRef.current) return;
+    setNewMessage('');
+    await supabase.from('booking_messages').insert({
+      booking_id: activeBooking.id, sender_id: ownerIdRef.current, kind: 'text', text,
+    });
+    loadMessages();
+  };
+
+  // Le promeneur est arrivé — on confirme lui avoir remis le chien, ce qui
+  // démarre la balade pour de vrai des deux côtés.
+  const confirmHandoverReal = async () => {
+    if (!activeBooking?.id) return;
+    setConfirmingHandover(true);
+    try {
+      await supabase.from('bookings').update({
+        status: 'walking', walk_started_at: new Date().toISOString(),
+      }).eq('id', activeBooking.id);
+      lastBookingStatusRef.current = 'walking';
+      setActiveBooking(b => b ? { ...b, status: 'walking', walk_started_at: new Date().toISOString() } : b);
+    } finally {
+      setConfirmingHandover(false);
+    }
+  };
+
+  const cancelActiveWalk = async () => {
+    if (!activeBooking?.id || !cancelWalkReason) return;
+    await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', activeBooking.id);
+    setShowCancelWalk(false);
+    setCancelWalkReason('');
+    setActiveBooking(null);
+    lastBookingStatusRef.current = null;
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -454,13 +541,35 @@ export default function Dashboard() {
                     })}
                   </div>
                 </div>
+
+                {activeBooking.status === 'walker_arrived' && (
+                  <div style={{ background: '#E1F5EE', borderRadius: 16, padding: '16px', marginBottom: 12, textAlign: 'center' }}>
+                    <div style={{ fontSize: 14, color: '#0F6E56', fontWeight: 600, marginBottom: 12 }}>
+                      🐾 {activeBooking.walker_name || 'Le promeneur'} est arrivé ! Confirmez lui avoir remis {activeBooking.dog_name || 'votre chien'}.
+                    </div>
+                    <button onClick={confirmHandoverReal} disabled={confirmingHandover}
+                      style={{ width: '100%', padding: 15, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: confirmingHandover ? 'default' : 'pointer', opacity: confirmingHandover ? 0.7 : 1 }}>
+                      🐾 Confirmer la remise de mon chien
+                    </button>
+                  </div>
+                )}
+
+                <button onClick={() => setShowChat(true)} style={{ width: '100%', padding: '13px', background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 10, fontFamily: 'inherit' }}>
+                  💬 Discuter avec {activeBooking.walker_name || 'le promeneur'} {messages.length > 0 && <span style={{ marginLeft: 8, background: '#1D9E75', color: '#fff', borderRadius: 10, padding: '2px 8px', fontSize: 11 }}>{messages.length}</span>}
+                </button>
+
+                {activeBooking.status !== 'walking' && (
+                  <button onClick={() => setShowCancelWalk(true)} style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    ❌ Annuler la balade
+                  </button>
+                )}
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '48px 20px' }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>😴</div>
-                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Aucune balade en cours</h3>
-                <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>Commandez une balade pour suivre votre chien en temps réel.</p>
-                <button onClick={() => navigate('/book')}
+                <div style={{ fontSize: 48, marginBottom: 16 }}>{justFinished ? '🎉' : '😴'}</div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>{justFinished ? 'Balade terminée !' : 'Aucune balade en cours'}</h3>
+                <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>{justFinished ? "Votre chien est rentré, on espère qu'il s'est bien amusé 🐾" : 'Commandez une balade pour suivre votre chien en temps réel.'}</p>
+                <button onClick={() => { setJustFinished(false); navigate('/book'); }}
                   style={{ padding: '14px 28px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
                   Commander une balade
                 </button>
@@ -636,6 +745,75 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
+
+      {/* DISCUSSION AVEC LE PROMENEUR */}
+      {showChat && activeBooking && (
+        <div style={{ position: 'fixed', inset: 0, background: '#F8FAF9', zIndex: 400, display: 'flex', flexDirection: 'column', maxWidth: 430, margin: '0 auto' }}>
+          <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 20px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={() => setShowChat(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer' }}>← Retour</button>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🧑</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{activeBooking.walker_name || 'Promeneur'}</div>
+          </div>
+          <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {messages.length === 0 && (
+              <div style={{ textAlign: 'center', color: '#AAA', fontSize: 13, marginTop: 20 }}>Aucun message pour l'instant</div>
+            )}
+            {messages.map(msg => {
+              const mine = msg.sender_id === ownerIdRef.current;
+              if (msg.kind === 'event') {
+                return <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>;
+              }
+              if (msg.kind === 'photo') {
+                return (
+                  <div key={msg.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start' }}>
+                    <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
+                  </div>
+                );
+              }
+              return (
+                <div key={msg.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ maxWidth: '75%', background: mine ? '#1D9E75' : '#fff', color: mine ? '#fff' : '#1A1A1A', borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', padding: '10px 14px', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    {msg.text}
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={chatEndRef} />
+          </div>
+          <div style={{ padding: '12px 16px', background: '#fff', borderTop: '1px solid #F0F0F0', display: 'flex', gap: 10, alignItems: 'center' }}>
+            <input style={{ flex: 1, padding: '12px 14px', borderRadius: 24, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA' }}
+              placeholder="Écrire un message..." value={newMessage}
+              onChange={e => setNewMessage(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()} />
+            <button onClick={sendMessage} style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>➤</button>
+          </div>
+        </div>
+      )}
+
+      {/* ANNULER LA BALADE */}
+      {showCancelWalk && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 500 }}>
+          <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '28px 24px 40px', width: '100%', maxWidth: 430 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Annuler la balade</h3>
+            <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Pourquoi souhaitez-vous annuler ?</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {CANCEL_REASONS.map(r => (
+                <div key={r} onClick={() => setCancelWalkReason(r)}
+                  style={{ padding: '14px 16px', borderRadius: 12, border: cancelWalkReason === r ? '2px solid #E24B4A' : '1.5px solid #E8E8E8', background: cancelWalkReason === r ? '#FFF0F0' : '#FAFAFA', cursor: 'pointer', fontSize: 14, color: cancelWalkReason === r ? '#E24B4A' : '#555', fontWeight: cancelWalkReason === r ? 600 : 400 }}>
+                  {r}
+                </div>
+              ))}
+            </div>
+            <button disabled={!cancelWalkReason} onClick={cancelActiveWalk}
+              style={{ width: '100%', padding: 16, background: cancelWalkReason ? '#E24B4A' : '#F0F0F0', color: cancelWalkReason ? '#fff' : '#AAA', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: cancelWalkReason ? 'pointer' : 'default', marginBottom: 10, fontFamily: 'inherit' }}>
+              Confirmer l'annulation
+            </button>
+            <button onClick={() => { setShowCancelWalk(false); setCancelWalkReason(''); }}
+              style={{ width: '100%', padding: 13, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Garder ma balade
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

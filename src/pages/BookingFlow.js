@@ -314,6 +314,15 @@ export default function BookingFlow() {
         setWalkerPhase('here');
       } else if (row.status === 'completed' && walkerPhase !== 'done') {
         setWalkerPhase('done');
+      } else if (row.status === 'cancelled') {
+        // Annulée côté promeneur (empêchement) — on repart de zéro pour
+        // le propriétaire, avec un message clair au lieu de rester bloqué.
+        matchBookingIdRef.current = null;
+        setMatched(false);
+        setWalker(null);
+        setWalkerPhase('incoming');
+        setSearching(false);
+        setMatchingError('Le promeneur a dû annuler cette balade. Réessayez avec un autre promeneur.');
       }
     };
     checkStatus();
@@ -556,10 +565,27 @@ export default function BookingFlow() {
       } else if (Date.now() - startedAt > 45000) {
         clearInterval(matchPollRef.current);
         matchPollRef.current = null;
+        // On libère la réservation abandonnée : sans ça elle reste "pending"
+        // et le promeneur pourrait l'accepter alors que le propriétaire a
+        // déjà laissé tomber la recherche.
+        await supabase.from('bookings').update({ status: 'refused' }).eq('id', bookingId);
         setSearching(false);
         setMatchingError("Personne n'a répondu à temps. Réessayez.");
       }
     }, 3000);
+  };
+
+  // Annulation pendant la recherche elle-même (avant qu'un promeneur ait
+  // répondu) : on coupe le sondage, on libère la réservation en base si
+  // elle a déjà été créée, puis on revient au tableau de bord.
+  const cancelSearch = async () => {
+    if (matchPollRef.current) { clearInterval(matchPollRef.current); matchPollRef.current = null; }
+    if (flowType === 'walk' && matchBookingIdRef.current) {
+      await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', matchBookingIdRef.current);
+    }
+    matchBookingIdRef.current = null;
+    setSearching(false);
+    goToDashboard();
   };
 
   const confirmSearch = () => {
@@ -638,6 +664,7 @@ export default function BookingFlow() {
               </div>
             ))}
           </div>
+          <button onClick={cancelSearch} style={{ width: '100%', padding: 14, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit', marginTop: 24 }}>Annuler la recherche</button>
         </div>
       </div>
     );

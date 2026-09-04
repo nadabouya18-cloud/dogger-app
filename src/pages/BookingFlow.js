@@ -138,8 +138,11 @@ export default function BookingFlow() {
   const chatEndRef = useRef(null);
   const matchTriedRef = useRef([]);
   const matchBookingIdRef = useRef(null);
+  const ownerIdRef = useRef(null);
   const matchPollRef = useRef(null);
   const [matchingError, setMatchingError] = React.useState('');
+  const [walkerLivePos, setWalkerLivePos] = React.useState(null);
+  const liveLineRef = useRef(null);
 
   // Initialiser flowType depuis l'URL
   useEffect(() => {
@@ -163,6 +166,7 @@ export default function BookingFlow() {
     const loadDogs = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+      ownerIdRef.current = session.user.id;
       const { data } = await supabase.from('dogs').select('*').eq('owner_id', session.user.id);
       if (data) {
         setUserDogs(data);
@@ -241,6 +245,22 @@ export default function BookingFlow() {
     mapInstanceRef.current = map;
     setTimeout(() => { window.google.maps.event.trigger(map, 'resize'); map.setCenter(userCoords); }, 200);
     new window.google.maps.Marker({ position: userCoords, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new window.google.maps.Size(40, 40) } });
+
+    if (flowType === 'walk') {
+      // Balade réelle : on n'invente plus de trajet — le marqueur est
+      // placé (et déplacé) à partir de la vraie position GPS envoyée par
+      // le promeneur, voir l'effet "Suivi en direct" plus bas.
+      if (walkerLivePos) {
+        walkerMarkerRef.current = new window.google.maps.Marker({
+          position: walkerLivePos, map,
+          icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) },
+        });
+      }
+      return;
+    }
+
+    // Garde à domicile : mise en relation encore simulée pour l'instant,
+    // on garde donc la trajectoire fictive existante.
     const startCoords = { lat: userCoords.lat + (Math.random() - 0.5) * 0.008, lng: userCoords.lng + (Math.random() - 0.5) * 0.008 };
     const wm = new window.google.maps.Marker({ position: startCoords, map, icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) } });
     walkerMarkerRef.current = wm;
@@ -254,15 +274,15 @@ export default function BookingFlow() {
         setEtaSeconds(dur);
       }
     });
-  }, [userCoords]);
+  }, [userCoords, flowType, walkerLivePos]);
 
   useEffect(() => {
     if (matched && userCoords && mapRef.current) setTimeout(initMap, 400);
   }, [matched, userCoords, initMap]);
 
-  // Animation walker sur la carte
+  // Animation walker sur la carte (garde à domicile — trajectoire simulée)
   useEffect(() => {
-    if (!matched || walkerPhase === 'here' || routePath.length === 0) return;
+    if (flowType !== 'home' || !matched || walkerPhase === 'here' || routePath.length === 0) return;
     const totalSteps = routePath.length;
     const msPerStep = etaSeconds > 0 ? (etaSeconds * 1000) / totalSteps : 1000;
     const interval = setInterval(() => {
@@ -275,7 +295,42 @@ export default function BookingFlow() {
       });
     }, Math.max(msPerStep, 800));
     return () => clearInterval(interval);
-  }, [matched, walkerPhase, routePath.length, etaSeconds]);
+  }, [flowType, matched, walkerPhase, routePath.length, etaSeconds]);
+
+  // Suivi en direct de la Balade : la position réelle envoyée par le
+  // promeneur (toutes les ~10s pendant une mission active) déplace le
+  // marqueur et redessine le trait qui le relie à vous.
+  useEffect(() => {
+    if (flowType !== 'walk' || !window.google || !mapInstanceRef.current || !walkerLivePos) return;
+    const map = mapInstanceRef.current;
+    if (!walkerMarkerRef.current) {
+      walkerMarkerRef.current = new window.google.maps.Marker({
+        position: walkerLivePos, map,
+        icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new window.google.maps.Size(40, 40) },
+      });
+    } else {
+      walkerMarkerRef.current.setPosition(walkerLivePos);
+    }
+    const stillApproaching = walkerPhase === 'incoming' || walkerPhase === 'arriving';
+    if (stillApproaching && userCoords) {
+      // Tant qu'il n'est pas encore arrivé, on trace le trajet restant et
+      // on recalcule le temps sur la vraie distance qui reste à parcourir.
+      if (!liveLineRef.current) {
+        liveLineRef.current = new window.google.maps.Polyline({
+          map, strokeColor: '#1D9E75', strokeWeight: 4, strokeOpacity: 0.8,
+        });
+      }
+      liveLineRef.current.setPath([walkerLivePos, userCoords]);
+      const remainingKm = distanceKm(walkerLivePos.lat, walkerLivePos.lng, userCoords.lat, userCoords.lng);
+      setEtaSeconds(Math.max(30, Math.round(remainingKm / 5 * 3600)));
+    } else if (liveLineRef.current) {
+      // Une fois le chien récupéré, il ne "se dirige" plus vers vous — on
+      // retire le trait pour ne pas laisser croire le contraire, tout en
+      // continuant à déplacer le marqueur pour suivre la balade en direct.
+      liveLineRef.current.setMap(null);
+      liveLineRef.current = null;
+    }
+  }, [flowType, walkerLivePos, userCoords, walkerPhase, setEtaSeconds]);
 
   // Countdown ETA (garde à domicile uniquement — pour la Balade, la phase
   // est pilotée par le vrai statut du promeneur, voir l'effet plus bas)
@@ -306,9 +361,19 @@ export default function BookingFlow() {
     const checkStatus = async () => {
       if (!matchBookingIdRef.current) return;
       const { data: row } = await supabase
-        .from('bookings').select('status').eq('id', matchBookingIdRef.current).single();
+        .from('bookings').select('status, walker_lat, walker_lng').eq('id', matchBookingIdRef.current).single();
       if (stopped || !row) return;
+      if (row.walker_lat != null && row.walker_lng != null) {
+        setWalkerLivePos({ lat: row.walker_lat, lng: row.walker_lng });
+      }
       if (row.status === 'walker_arrived' && walkerPhase !== 'awaiting_confirm' && walkerPhase !== 'here' && walkerPhase !== 'done') {
+        // On quitte temporairement l'écran carte pour l'écran de
+        // confirmation — on oublie l'ancienne carte pour que la carte se
+        // reconstruise proprement quand on y revient (sinon elle resterait
+        // vide, accrochée à un `<div>` qui n'existe plus).
+        mapInstanceRef.current = null;
+        walkerMarkerRef.current = null;
+        liveLineRef.current = null;
         setWalkerPhase('awaiting_confirm');
       } else if (row.status === 'walking' && walkerPhase !== 'here' && walkerPhase !== 'done') {
         setWalkerPhase('here');
@@ -380,6 +445,25 @@ export default function BookingFlow() {
     if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
   }, [messages, showChat]);
 
+  // Vraie discussion (Balade) — ce fichier n'est plus l'écran principal de
+  // suivi (voir la redirection vers le tableau de bord après mise en
+  // relation), mais reste un filet de sécurité si on y revient : autant
+  // qu'il montre le vrai fil plutôt que d'anciennes fausses réponses.
+  const loadRealMessages = useCallback(async () => {
+    if (flowType !== 'walk' || !matchBookingIdRef.current) return;
+    const { data } = await supabase
+      .from('booking_messages').select('*').eq('booking_id', matchBookingIdRef.current)
+      .order('created_at', { ascending: true });
+    if (data) setMessages(data);
+  }, [flowType]);
+
+  useEffect(() => {
+    if (flowType !== 'walk' || !matched) return;
+    loadRealMessages();
+    const interval = setInterval(loadRealMessages, 4000);
+    return () => clearInterval(interval);
+  }, [flowType, matched, loadRealMessages]);
+
   const toggleDog = (id) => setSelectedDogs(
     selectedDogs.includes(id) ? selectedDogs.filter(x => x !== id) : [...selectedDogs, id]
   );
@@ -405,13 +489,25 @@ export default function BookingFlow() {
   // chien, ce qui démarre la balade pour de vrai des deux côtés.
   const confirmDogHandover = async () => {
     if (matchBookingIdRef.current) {
-      await supabase.from('bookings').update({ status: 'walking' }).eq('id', matchBookingIdRef.current);
+      await supabase.from('bookings').update({
+        status: 'walking',
+        walk_started_at: new Date().toISOString(),
+      }).eq('id', matchBookingIdRef.current);
     }
     setWalkerPhase('here');
   };
 
-  const sendMessage = () => {
-    if (!newMessage.trim()) return;
+  const sendMessage = async () => {
+    const text = newMessage.trim();
+    if (!text) return;
+    if (flowType === 'walk' && matchBookingIdRef.current && ownerIdRef.current) {
+      setNewMessage('');
+      await supabase.from('booking_messages').insert({
+        booking_id: matchBookingIdRef.current, sender_id: ownerIdRef.current, kind: 'text', text,
+      });
+      loadRealMessages();
+      return;
+    }
     setMessages(m => [...m, { id: Date.now(), from: 'owner', text: newMessage, time: 'maintenant' }]);
     setNewMessage('');
     setTimeout(() => {
@@ -558,6 +654,10 @@ export default function BookingFlow() {
         setEtaSeconds(chosen.distanceKm != null ? Math.max(60, Math.round(chosen.distanceKm / 5 * 3600)) : 480);
         setMatched(true);
         setSearching(false);
+        // La suite (suivi en direct, discussion, confirmation) se passe
+        // désormais dans le tableau de bord — un seul écran de suivi, pas
+        // deux versions différentes à maintenir en parallèle.
+        navigate('/dashboard#live');
       } else if (row?.status === 'refused') {
         clearInterval(matchPollRef.current);
         matchPollRef.current = null;
@@ -683,14 +783,27 @@ export default function BookingFlow() {
           </div>
         </div>
         <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {messages.map(msg => (
-            <div key={msg.id} style={{ display: 'flex', justifyContent: msg.from === 'owner' ? 'flex-end' : 'flex-start' }}>
-              <div style={{ maxWidth: '75%', background: msg.from === 'owner' ? '#1D9E75' : '#fff', color: msg.from === 'owner' ? '#fff' : '#1A1A1A', borderRadius: msg.from === 'owner' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', padding: '10px 14px', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-                <div>{msg.text}</div>
-                <div style={{ fontSize: 10, color: msg.from === 'owner' ? 'rgba(255,255,255,0.7)' : '#AAA', marginTop: 4, textAlign: 'right' }}>{msg.time}</div>
+          {messages.map(msg => {
+            const mine = flowType === 'walk' ? msg.sender_id === ownerIdRef.current : msg.from === 'owner';
+            if (msg.kind === 'event') {
+              return <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>;
+            }
+            if (msg.kind === 'photo') {
+              return (
+                <div key={msg.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start' }}>
+                  <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
+                </div>
+              );
+            }
+            return (
+              <div key={msg.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+                <div style={{ maxWidth: '75%', background: mine ? '#1D9E75' : '#fff', color: mine ? '#fff' : '#1A1A1A', borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', padding: '10px 14px', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                  <div>{msg.text}</div>
+                  {msg.time && <div style={{ fontSize: 10, color: mine ? 'rgba(255,255,255,0.7)' : '#AAA', marginTop: 4, textAlign: 'right' }}>{msg.time}</div>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <div ref={chatEndRef} />
         </div>
         <div style={{ padding: '12px 16px', background: '#fff', borderTop: '1px solid #F0F0F0', display: 'flex', gap: 10, alignItems: 'center' }}>

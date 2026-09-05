@@ -10,6 +10,7 @@ const LIVE_STEPS = [
   { status: 'accepted', label: 'Le promeneur est en route vers vous' },
   { status: 'walker_arrived', label: 'Le promeneur est arrivé' },
   { status: 'walking', label: 'La balade est en cours 🐾' },
+  { status: 'walker_returning', label: 'Le promeneur ramène votre chien' },
 ];
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
@@ -76,7 +77,7 @@ export default function Dashboard() {
         .from('bookings')
         .select('*')
         .eq('owner_id', session.user.id)
-        .in('status', ['accepted', 'walker_arrived', 'walking'])
+        .in('status', ['accepted', 'walker_arrived', 'walking', 'walker_returning', 'incident'])
         .order('created_at', { ascending: false })
         .limit(1);
       if (stopped) return;
@@ -84,7 +85,7 @@ export default function Dashboard() {
       // Si la balade qu'on suivait vient de disparaître de la liste des
       // balades actives alors qu'elle était en cours, c'est qu'elle vient
       // d'être marquée terminée côté promeneur — petit message de clôture.
-      if (!found && lastBookingStatusRef.current === 'walking') {
+      if (!found && (lastBookingStatusRef.current === 'walker_returning' || lastBookingStatusRef.current === 'incident')) {
         setJustFinished(true);
       }
       lastBookingStatusRef.current = found?.status || null;
@@ -177,6 +178,34 @@ export default function Dashboard() {
     setCancelWalkReason('');
     setActiveBooking(null);
     lastBookingStatusRef.current = null;
+  };
+
+  // Le propriétaire confirme avoir bien récupéré son chien — que ce soit
+  // juste après le retour du promeneur, ou après avoir résolu un
+  // signalement qui s'est avéré être un malentendu.
+  const confirmReturnReal = async () => {
+    if (!activeBooking?.id) return;
+    setConfirmingHandover(true);
+    try {
+      await supabase.from('bookings').update({ status: 'completed' }).eq('id', activeBooking.id);
+      setJustFinished(true);
+      setActiveBooking(null);
+      lastBookingStatusRef.current = null;
+    } finally {
+      setConfirmingHandover(false);
+    }
+  };
+
+  // Le propriétaire signale ne PAS avoir récupéré son chien. On ne peut
+  // pas empêcher physiquement quelqu'un de partir avec un chien — ce que
+  // l'app peut faire, c'est garder une trace claire (discussion, photos,
+  // dernière position connue) et orienter vers les vraies autorités.
+  const reportIncident = async () => {
+    if (!activeBooking?.id) return;
+    if (!window.confirm("Confirmer que vous n'avez pas récupéré votre chien ? Si la situation est urgente, contactez la police (17) sans attendre.")) return;
+    await supabase.from('bookings').update({ status: 'incident' }).eq('id', activeBooking.id);
+    lastBookingStatusRef.current = 'incident';
+    setActiveBooking(b => b ? { ...b, status: 'incident' } : b);
   };
 
   useEffect(() => {
@@ -316,6 +345,8 @@ export default function Dashboard() {
     const walkerLabel = activeBooking.walker_name || 'Le promeneur';
     if (activeBooking.status === 'walking') return `${walkerLabel} est avec ${activeBooking.dog_name || 'votre chien'} 🐾`;
     if (activeBooking.status === 'walker_arrived') return `${walkerLabel} est arrivé, en attente de votre confirmation`;
+    if (activeBooking.status === 'walker_returning') return `${walkerLabel} ramène ${activeBooking.dog_name || 'votre chien'} — confirmation à faire`;
+    if (activeBooking.status === 'incident') return `⚠️ Signalement en cours pour ${activeBooking.dog_name || 'votre chien'}`;
     return `${walkerLabel} est en route pour venir chercher ${activeBooking.dog_name || 'votre chien'}`;
   })();
 
@@ -368,7 +399,10 @@ export default function Dashboard() {
               <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{dogName} est en balade 🐾</div>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
                 {activeBooking.walker_name || 'Promeneur'}
-                {activeBooking.status === 'walking' ? ` · ${formatTime(walkTime)} · reste ${getRemainingTime()}` : ' · en route'}
+                {activeBooking.status === 'walking' ? ` · ${formatTime(walkTime)} · reste ${getRemainingTime()}`
+                  : activeBooking.status === 'walker_returning' ? ' · retour en cours'
+                  : activeBooking.status === 'incident' ? ' · signalement en cours'
+                  : ' · en route'}
               </div>
             </div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>Suivre →</div>
@@ -554,11 +588,43 @@ export default function Dashboard() {
                   </div>
                 )}
 
+                {activeBooking.status === 'walker_returning' && (
+                  <div style={{ background: '#E1F5EE', borderRadius: 16, padding: '16px', marginBottom: 12, textAlign: 'center' }}>
+                    <div style={{ fontSize: 14, color: '#0F6E56', fontWeight: 600, marginBottom: 12 }}>
+                      🐾 {activeBooking.walker_name || 'Le promeneur'} dit avoir terminé la balade et vous ramener {activeBooking.dog_name || 'votre chien'}.
+                    </div>
+                    <button onClick={confirmReturnReal} disabled={confirmingHandover}
+                      style={{ width: '100%', padding: 15, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: confirmingHandover ? 'default' : 'pointer', opacity: confirmingHandover ? 0.7 : 1, marginBottom: 10 }}>
+                      ✅ J'ai bien récupéré mon chien
+                    </button>
+                    <button onClick={reportIncident} disabled={confirmingHandover}
+                      style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 13, fontWeight: 600, cursor: confirmingHandover ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                      ⚠️ Je n'ai pas récupéré mon chien
+                    </button>
+                  </div>
+                )}
+
+                {activeBooking.status === 'incident' && (
+                  <div style={{ background: '#FFF0F0', border: '2px solid #E24B4A', borderRadius: 16, padding: '16px', marginBottom: 12 }}>
+                    <div style={{ fontSize: 14, color: '#E24B4A', fontWeight: 700, marginBottom: 8 }}>🚨 Signalement enregistré</div>
+                    <div style={{ fontSize: 13, color: '#555', marginBottom: 10, lineHeight: 1.5 }}>
+                      Vous avez indiqué ne pas avoir récupéré {activeBooking.dog_name || 'votre chien'}. La discussion, les photos et la dernière position connue du promeneur restent visibles ci-dessous.
+                    </div>
+                    <div style={{ fontSize: 13, color: '#B8860B', background: '#FFF8E1', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontWeight: 600 }}>
+                      Si vous êtes inquiète pour la sécurité de votre chien, contactez la police (17) sans attendre.
+                    </div>
+                    <button onClick={confirmReturnReal} disabled={confirmingHandover}
+                      style={{ width: '100%', padding: 14, background: 'transparent', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: confirmingHandover ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                      ✅ En fait, tout va bien — marquer comme résolu
+                    </button>
+                  </div>
+                )}
+
                 <button onClick={() => setShowChat(true)} style={{ width: '100%', padding: '13px', background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 10, fontFamily: 'inherit' }}>
                   💬 Discuter avec {activeBooking.walker_name || 'le promeneur'} {messages.length > 0 && <span style={{ marginLeft: 8, background: '#1D9E75', color: '#fff', borderRadius: 10, padding: '2px 8px', fontSize: 11 }}>{messages.length}</span>}
                 </button>
 
-                {activeBooking.status !== 'walking' && (
+                {(activeBooking.status === 'accepted' || activeBooking.status === 'walker_arrived') && (
                   <button onClick={() => setShowCancelWalk(true)} style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                     ❌ Annuler la balade
                   </button>

@@ -21,6 +21,7 @@ export default function WalkerHome() {
  const [walkerId, setWalkerId] = useState(null);
  const [locationStatus, setLocationStatus] = useState('idle'); // idle | pending | shared | denied | unsupported | error
  const [showCancelledNotice, setShowCancelledNotice] = useState(false);
+ const [showIncidentNotice, setShowIncidentNotice] = useState(false);
  const [messages, setMessages] = useState([]);
  const [newMessage, setNewMessage] = useState('');
  const [showChat, setShowChat] = useState(false);
@@ -135,7 +136,7 @@ export default function WalkerHome() {
  // le propriétaire confirme la remise du chien, et — surtout — détecter
  // si le propriétaire annule pendant qu'on est en route ou en attente.
  useEffect(() => {
-   if (!mission?.bookingId || !['navigating', 'arrived', 'walking'].includes(phase)) return;
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning'].includes(phase)) return;
    let stopped = false;
    const checkBooking = async () => {
      const { data } = await supabase
@@ -156,6 +157,16 @@ export default function WalkerHome() {
        setWalkTime(0);
        mapInstanceRef.current = null;
        setPhase('walking');
+     } else if (phase === 'returning' && data.status === 'completed') {
+       // Le propriétaire a confirmé avoir récupéré son chien — la balade
+       // est vraiment terminée, on peut passer à la notation.
+       setShowRating(true);
+     } else if (phase === 'returning' && data.status === 'incident') {
+       // Le propriétaire signale ne pas avoir récupéré son chien — on
+       // arrête le chrono mais on ne referme rien tout seul le temps que
+       // ce soit vu et traité.
+       clearInterval(walkerTimerRef.current);
+       setShowIncidentNotice(true);
      }
    };
    checkBooking();
@@ -175,7 +186,7 @@ export default function WalkerHome() {
  }, [mission?.bookingId]);
 
  useEffect(() => {
-   if (!mission?.bookingId || !['navigating', 'arrived', 'walking'].includes(phase)) {
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning'].includes(phase)) {
      setMessages([]);
      return;
    }
@@ -244,7 +255,7 @@ export default function WalkerHome() {
  // mission active, pour que le propriétaire puisse suivre la balade en
  // temps réel de son côté (bien plus fréquent que le partage "disponible").
  useEffect(() => {
-   if (!mission?.bookingId || !['navigating', 'arrived', 'walking'].includes(phase)) return;
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning'].includes(phase)) return;
    if (!navigator.geolocation) return;
    let stopped = false;
    const shareLiveLocation = () => {
@@ -394,6 +405,22 @@ export default function WalkerHome() {
    mapInstanceRef.current = null;
  };
 
+ // Le propriétaire n'a pas confirmé avoir récupéré son chien — on ne remet
+ // pas le promeneur "disponible" tant qu'il n'a pas vu et fermé ce message,
+ // pour ne pas lui envoyer une nouvelle mission en pleine situation
+ // litigieuse.
+ const dismissIncidentNotice = async () => {
+   setShowIncidentNotice(false);
+   if (walkerId) {
+     await supabase.from('walker_profiles').update({ available: true }).eq('id', walkerId);
+   }
+   setAvailable(true);
+   setPhase('idle');
+   setMission(null);
+   setWalkTime(0);
+   mapInstanceRef.current = null;
+ };
+
  // On signale son arrivée, mais la balade ne démarre pour de vrai que
  // quand le propriétaire confirme lui avoir remis son chien.
  const confirmArrival = async () => {
@@ -427,9 +454,19 @@ export default function WalkerHome() {
    }
  };
 
- const endWalk = () => {
+ // Terminer la balade ne clôt plus la réservation tout seul — le
+ // propriétaire doit confirmer avoir bien récupéré son chien avant que ce
+ // soit considéré comme terminé, exactement comme il a fallu confirmer la
+ // remise au départ.
+ const endWalk = async () => {
    clearInterval(walkerTimerRef.current);
-   setShowRating(true);
+   if (mission?.bookingId) {
+     await supabase.from('bookings').update({
+       status: 'walker_returning',
+       walk_ended_at: new Date().toISOString(),
+     }).eq('id', mission.bookingId);
+   }
+   setPhase('returning');
  };
 
  const submitRating = async () => {
@@ -586,6 +623,22 @@ export default function WalkerHome() {
        </div>
      )}
 
+     {/* MODAL SIGNALEMENT : LE PROPRIÉTAIRE N'A PAS RÉCUPÉRÉ SON CHIEN */}
+     {showIncidentNotice && (
+       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 350, padding: 24 }}>
+         <div style={{ background: '#fff', borderRadius: 20, padding: '28px 24px', width: '100%', maxWidth: 360, textAlign: 'center', border: '2px solid #E24B4A' }}>
+           <div style={{ fontSize: 44, marginBottom: 12 }}>🚨</div>
+           <h3 style={{ fontSize: 17, fontWeight: 700, color: '#E24B4A', marginBottom: 8 }}>Signalement du propriétaire</h3>
+           <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{mission?.owner || 'Le propriétaire'} indique ne pas avoir récupéré {mission?.dog || 'son chien'}. Contactez-le tout de suite via la discussion pour clarifier la situation.</p>
+           <p style={{ fontSize: 12, color: '#888', marginBottom: 20 }}>Cette réservation reste ouverte tant que ce n'est pas résolu — vous ne recevrez pas de nouvelle mission d'ici là.</p>
+           <button onClick={dismissIncidentNotice}
+             style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+             J'ai compris
+           </button>
+         </div>
+       </div>
+     )}
+
      {/* MODAL BALADE ANNULÉE PAR LE PROPRIÉTAIRE */}
      {showCancelledNotice && (
        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: 24 }}>
@@ -690,13 +743,14 @@ export default function WalkerHome() {
          </div>
        )}
 
-       {(phase === 'navigating' || phase === 'arrived' || phase === 'walking') && (
+       {(phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning') && (
          <div style={{ marginTop: 12, background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
            onClick={() => setTab('mission')}>
            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#7FFFD4', animation: 'pulse 1s infinite' }} />
            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: '#fff' }}>
              {phase === 'navigating' ? `🚶 En route vers ${mission?.owner || 'le client'}`
                : phase === 'arrived' ? '⏳ En attente de confirmation'
+               : phase === 'returning' ? '🏠 Retour du chien — en attente'
                : `🐾 Balade en cours — ${formatTime(walkTime)}`}
            </div>
            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>Voir →</div>
@@ -738,7 +792,7 @@ export default function WalkerHome() {
              ))}
            </div>
 
-           {(phase === 'navigating' || phase === 'arrived' || phase === 'walking') && mission && (
+           {(phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning') && mission && (
              <div style={{ background: '#E1F5EE', borderRadius: 16, padding: '16px', marginBottom: 16, border: '1.5px solid #1D9E75', cursor: 'pointer' }}
                onClick={() => setTab('mission')}>
                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -747,6 +801,7 @@ export default function WalkerHome() {
                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0F6E56' }}>
                      {phase === 'navigating' ? '🚶 En route vers le client'
                        : phase === 'arrived' ? '⏳ En attente de confirmation'
+                       : phase === 'returning' ? '🏠 Retour du chien — en attente de confirmation'
                        : `🐾 Balade en cours — ${formatTime(walkTime)}`}
                    </div>
                    <div style={{ fontSize: 12, color: '#555' }}>{mission.dog} · {mission.owner}</div>
@@ -795,6 +850,7 @@ export default function WalkerHome() {
                  <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', background: '#fff', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', whiteSpace: 'nowrap', zIndex: 10 }}>
                    {phase === 'navigating' ? '🚶 En route vers le client'
                      : phase === 'arrived' ? '⏳ En attente de confirmation'
+                     : phase === 'returning' ? '🏠 Retour du chien'
                      : `🐾 Balade — ${formatTime(walkTime)}`}
                  </div>
                </div>
@@ -836,7 +892,7 @@ export default function WalkerHome() {
                </div>
 
                {/* Discussion, photos & petites notifs */}
-               {['navigating', 'arrived', 'walking'].includes(phase) && (
+               {['navigating', 'arrived', 'walking', 'returning'].includes(phase) && (
                  <div style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                    <button onClick={() => setShowChat(true)}
                      style={{ width: '100%', padding: '11px', background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: phase === 'walking' ? 12 : 0, fontFamily: 'inherit' }}>
@@ -878,6 +934,11 @@ export default function WalkerHome() {
                    style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.4)' }}>
                    ✅ Terminer la balade
                  </button>
+               )}
+               {phase === 'returning' && (
+                 <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '14px 16px', textAlign: 'center', fontSize: 13, color: '#B8860B', fontWeight: 600, animation: 'pulse 2s infinite' }}>
+                   ⏳ En attente que {mission.owner} confirme avoir récupéré {mission.dog}...
+                 </div>
                )}
                {(phase === 'navigating' || phase === 'arrived') && (
                  <button onClick={cancelActiveMission}
@@ -976,7 +1037,7 @@ export default function WalkerHome() {
        ].map(t => (
          <button key={t.id} onClick={() => setTab(t.id)}
            style={{ flex: 1, border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 0', fontFamily: 'inherit', position: 'relative' }}>
-           {t.id === 'mission' && (phase === 'navigating' || phase === 'arrived' || phase === 'walking') && (
+           {t.id === 'mission' && (phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning') && (
              <div style={{ position: 'absolute', top: 4, right: '25%', width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', animation: 'pulse 1s infinite' }} />
            )}
            <div style={{ fontSize: 20, marginBottom: 2 }}>{t.icon}</div>

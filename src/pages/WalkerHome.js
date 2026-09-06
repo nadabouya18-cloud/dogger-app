@@ -26,6 +26,9 @@ export default function WalkerHome() {
  const [newMessage, setNewMessage] = useState('');
  const [showChat, setShowChat] = useState(false);
  const [sendingPhoto, setSendingPhoto] = useState(false);
+ const [historyChat, setHistoryChat] = useState(null); // { bookingId, owner, dog } | null — mission passée dont on consulte l'historique
+ const [historyMessages, setHistoryMessages] = useState([]);
+ const [historyLoading, setHistoryLoading] = useState(false);
  const chatEndRef = useRef(null);
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
@@ -61,6 +64,7 @@ export default function WalkerHome() {
            rating: w.rating,
            date: new Date(w.created_at).toLocaleDateString('fr-FR'),
            createdAt: w.created_at,
+           bookingId: w.booking_id,
          })));
        }
      } catch (e) {
@@ -136,7 +140,7 @@ export default function WalkerHome() {
  // le propriétaire confirme la remise du chien, et — surtout — détecter
  // si le propriétaire annule pendant qu'on est en route ou en attente.
  useEffect(() => {
-   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning'].includes(phase)) return;
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning', 'pickup_photo', 'return_photo'].includes(phase)) return;
    let stopped = false;
    const checkBooking = async () => {
      const { data } = await supabase
@@ -156,7 +160,9 @@ export default function WalkerHome() {
      } else if (phase === 'arrived' && data.status === 'walking') {
        setWalkTime(0);
        mapInstanceRef.current = null;
-       setPhase('walking');
+       // Avant de démarrer vraiment, une photo du chien à la prise en
+       // charge est obligatoire — comme une preuve d'état des lieux.
+       setPhase('pickup_photo');
      } else if (phase === 'returning' && data.status === 'completed') {
        // Le propriétaire a confirmé avoir récupéré son chien — la balade
        // est vraiment terminée, on peut passer à la notation.
@@ -186,7 +192,7 @@ export default function WalkerHome() {
  }, [mission?.bookingId]);
 
  useEffect(() => {
-   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning'].includes(phase)) {
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning', 'pickup_photo', 'return_photo'].includes(phase)) {
      setMessages([]);
      return;
    }
@@ -198,6 +204,20 @@ export default function WalkerHome() {
  useEffect(() => {
    if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
  }, [messages, showChat]);
+
+ // Consulter l'historique (messages + photos) d'une mission déjà terminée —
+ // en lecture seule, pour retrouver une conversation ou une preuve photo.
+ const openHistoryChat = async (h) => {
+   if (!h.bookingId) return;
+   setHistoryChat({ bookingId: h.bookingId, owner: h.owner, dog: h.dog, date: h.date });
+   setHistoryLoading(true);
+   setHistoryMessages([]);
+   const { data } = await supabase
+     .from('booking_messages').select('*').eq('booking_id', h.bookingId)
+     .order('created_at', { ascending: true });
+   setHistoryMessages(data || []);
+   setHistoryLoading(false);
+ };
 
  const sendMessage = async () => {
    const text = newMessage.trim();
@@ -255,7 +275,7 @@ export default function WalkerHome() {
  // mission active, pour que le propriétaire puisse suivre la balade en
  // temps réel de son côté (bien plus fréquent que le partage "disponible").
  useEffect(() => {
-   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning'].includes(phase)) return;
+   if (!mission?.bookingId || !['navigating', 'arrived', 'walking', 'returning', 'pickup_photo', 'return_photo'].includes(phase)) return;
    if (!navigator.geolocation) return;
    let stopped = false;
    const shareLiveLocation = () => {
@@ -433,7 +453,10 @@ export default function WalkerHome() {
  // Photo prise sur le moment (l'attribut "capture" force l'appareil photo
  // plutôt que la pioche dans d'anciennes photos), envoyée dans le fil de
  // discussion pour que le propriétaire la voie tout de suite.
- const handlePhoto = async (e) => {
+ // kind: 'photo' (envoi libre pendant la balade), 'handover_photo' (preuve
+ // à la prise en charge) ou 'return_photo' (preuve au retour) — un peu
+ // comme l'état des lieux photo des apps de location.
+ const handlePhoto = async (e, kind = 'photo') => {
    const file = e.target.files[0];
    e.target.value = '';
    if (!file || !mission?.bookingId || !walkerId) return;
@@ -446,19 +469,25 @@ export default function WalkerHome() {
      if (uploadError) { console.error(uploadError); return; }
      const { data: pub } = supabase.storage.from('walk-photos').getPublicUrl(path);
      await supabase.from('booking_messages').insert({
-       booking_id: mission.bookingId, sender_id: walkerId, kind: 'photo', image_url: pub.publicUrl,
+       booking_id: mission.bookingId, sender_id: walkerId, kind, image_url: pub.publicUrl,
      });
      loadMessages();
+     if (kind === 'handover_photo') setPhase('walking');
+     if (kind === 'return_photo') await finalizeReturn();
    } finally {
      setSendingPhoto(false);
    }
  };
 
- // Terminer la balade ne clôt plus la réservation tout seul — le
- // propriétaire doit confirmer avoir bien récupéré son chien avant que ce
- // soit considéré comme terminé, exactement comme il a fallu confirmer la
- // remise au départ.
- const endWalk = async () => {
+ // Terminer la balade ne clôt plus la réservation tout seul — une photo de
+ // preuve au retour est d'abord obligatoire (voir handlePhoto), puis le
+ // propriétaire doit confirmer avoir bien récupéré son chien, exactement
+ // comme il a fallu confirmer la remise au départ.
+ const endWalk = () => {
+   setPhase('return_photo');
+ };
+
+ const finalizeReturn = async () => {
    clearInterval(walkerTimerRef.current);
    if (mission?.bookingId) {
      await supabase.from('bookings').update({
@@ -482,6 +511,7 @@ export default function WalkerHome() {
          duration: mission.duration,
          price: mission.price,
          rating,
+         booking_id: mission.bookingId || null,
        })
        .select()
        .single();
@@ -496,6 +526,7 @@ export default function WalkerHome() {
          rating: inserted.rating,
          date: new Date(inserted.created_at).toLocaleDateString('fr-FR'),
          createdAt: inserted.created_at,
+         bookingId: inserted.booking_id,
        }, ...h]);
      }
      if (mission.bookingId) {
@@ -600,8 +631,13 @@ export default function WalkerHome() {
            {messages.map(msg => (
              msg.kind === 'event' ? (
                <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>
-             ) : msg.kind === 'photo' ? (
+             ) : (msg.kind === 'photo' || msg.kind === 'handover_photo' || msg.kind === 'return_photo') ? (
                <div key={msg.id} style={{ alignSelf: msg.sender_id === walkerId ? 'flex-end' : 'flex-start' }}>
+                 {msg.kind !== 'photo' && (
+                   <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textAlign: msg.sender_id === walkerId ? 'right' : 'left' }}>
+                     {msg.kind === 'handover_photo' ? '📸 Photo à la prise en charge' : '📸 Photo au retour'}
+                   </div>
+                 )}
                  <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
                </div>
              ) : (
@@ -619,6 +655,48 @@ export default function WalkerHome() {
              placeholder="Écrire un message..." value={newMessage}
              onChange={e => setNewMessage(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()} />
            <button onClick={sendMessage} style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>➤</button>
+         </div>
+       </div>
+     )}
+
+     {/* HISTORIQUE D'UNE MISSION PASSÉE : conversation + photos, lecture seule */}
+     {historyChat && (
+       <div style={{ position: 'fixed', inset: 0, background: '#F8FAF9', zIndex: 400, display: 'flex', flexDirection: 'column', maxWidth: 430, margin: '0 auto' }}>
+         <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 20px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+           <button onClick={() => setHistoryChat(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer' }}>← Retour</button>
+           <div>
+             <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{historyChat.dog} · {historyChat.owner}</div>
+             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>{historyChat.date} · historique</div>
+           </div>
+         </div>
+         <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+           {historyLoading ? (
+             <div style={{ textAlign: 'center', color: '#AAA', fontSize: 13, marginTop: 20 }}>Chargement...</div>
+           ) : historyMessages.length === 0 ? (
+             <div style={{ textAlign: 'center', color: '#AAA', fontSize: 13, marginTop: 20 }}>Aucun message pour cette mission</div>
+           ) : historyMessages.map(msg => (
+             msg.kind === 'event' ? (
+               <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>
+             ) : (msg.kind === 'photo' || msg.kind === 'handover_photo' || msg.kind === 'return_photo') ? (
+               <div key={msg.id} style={{ alignSelf: msg.sender_id === walkerId ? 'flex-end' : 'flex-start' }}>
+                 {msg.kind !== 'photo' && (
+                   <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textAlign: msg.sender_id === walkerId ? 'right' : 'left' }}>
+                     {msg.kind === 'handover_photo' ? '📸 Photo à la prise en charge' : '📸 Photo au retour'}
+                   </div>
+                 )}
+                 <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
+               </div>
+             ) : (
+               <div key={msg.id} style={{ display: 'flex', justifyContent: msg.sender_id === walkerId ? 'flex-end' : 'flex-start' }}>
+                 <div style={{ maxWidth: '75%', background: msg.sender_id === walkerId ? '#1D9E75' : '#fff', color: msg.sender_id === walkerId ? '#fff' : '#1A1A1A', borderRadius: msg.sender_id === walkerId ? '18px 18px 4px 18px' : '18px 18px 18px 4px', padding: '10px 14px', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                   {msg.text}
+                 </div>
+               </div>
+             )
+           ))}
+         </div>
+         <div style={{ padding: '14px 16px', background: '#fff', borderTop: '1px solid #F0F0F0', textAlign: 'center', fontSize: 12, color: '#AAA' }}>
+           Mission terminée — historique en lecture seule
          </div>
        </div>
      )}
@@ -743,13 +821,15 @@ export default function WalkerHome() {
          </div>
        )}
 
-       {(phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning') && (
+       {(phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning' || phase === 'pickup_photo' || phase === 'return_photo') && (
          <div style={{ marginTop: 12, background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
            onClick={() => setTab('mission')}>
            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#7FFFD4', animation: 'pulse 1s infinite' }} />
            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: '#fff' }}>
              {phase === 'navigating' ? `🚶 En route vers ${mission?.owner || 'le client'}`
                : phase === 'arrived' ? '⏳ En attente de confirmation'
+               : phase === 'pickup_photo' ? '📸 Photo à prendre'
+              : phase === 'return_photo' ? '📸 Photo avant le retour'
                : phase === 'returning' ? '🏠 Retour du chien — en attente'
                : `🐾 Balade en cours — ${formatTime(walkTime)}`}
            </div>
@@ -792,7 +872,7 @@ export default function WalkerHome() {
              ))}
            </div>
 
-           {(phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning') && mission && (
+           {(phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning' || phase === 'pickup_photo' || phase === 'return_photo') && mission && (
              <div style={{ background: '#E1F5EE', borderRadius: 16, padding: '16px', marginBottom: 16, border: '1.5px solid #1D9E75', cursor: 'pointer' }}
                onClick={() => setTab('mission')}>
                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -801,6 +881,8 @@ export default function WalkerHome() {
                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0F6E56' }}>
                      {phase === 'navigating' ? '🚶 En route vers le client'
                        : phase === 'arrived' ? '⏳ En attente de confirmation'
+                       : phase === 'pickup_photo' ? '📸 Photo à prendre'
+              : phase === 'return_photo' ? '📸 Photo avant le retour'
                        : phase === 'returning' ? '🏠 Retour du chien — en attente de confirmation'
                        : `🐾 Balade en cours — ${formatTime(walkTime)}`}
                    </div>
@@ -818,14 +900,18 @@ export default function WalkerHome() {
                <p style={{ fontSize: 14, color: '#888' }}>Activez votre disponibilité pour recevoir vos premières missions !</p>
              </div>
            ) : history.map(h => (
-             <div key={h.id} style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 12 }}>
+             <div key={h.id} onClick={() => h.bookingId && openHistoryChat(h)}
+               style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 12, cursor: h.bookingId ? 'pointer' : 'default' }}>
                <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🐕</div>
                <div style={{ flex: 1 }}>
                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{h.dog} · {h.owner}</div>
                  <div style={{ fontSize: 12, color: '#888' }}>{h.date} · {h.duration} min</div>
                  <div style={{ fontSize: 12 }}>{'⭐'.repeat(h.rating)}</div>
                </div>
-               <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>+{h.price}€</div>
+               <div style={{ textAlign: 'right' }}>
+                 <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>+{h.price}€</div>
+                 {h.bookingId && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 2 }}>💬 Voir</div>}
+               </div>
              </div>
            ))}
          </div>
@@ -850,6 +936,8 @@ export default function WalkerHome() {
                  <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', background: '#fff', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 700, color: '#1D9E75', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', whiteSpace: 'nowrap', zIndex: 10 }}>
                    {phase === 'navigating' ? '🚶 En route vers le client'
                      : phase === 'arrived' ? '⏳ En attente de confirmation'
+                     : phase === 'pickup_photo' ? '📸 Photo à prendre'
+              : phase === 'return_photo' ? '📸 Photo avant le retour'
                      : phase === 'returning' ? '🏠 Retour du chien'
                      : `🐾 Balade — ${formatTime(walkTime)}`}
                  </div>
@@ -892,7 +980,7 @@ export default function WalkerHome() {
                </div>
 
                {/* Discussion, photos & petites notifs */}
-               {['navigating', 'arrived', 'walking', 'returning'].includes(phase) && (
+               {['navigating', 'arrived', 'walking', 'returning', 'pickup_photo', 'return_photo'].includes(phase) && (
                  <div style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                    <button onClick={() => setShowChat(true)}
                      style={{ width: '100%', padding: '11px', background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: phase === 'walking' ? 12 : 0, fontFamily: 'inherit' }}>
@@ -929,11 +1017,43 @@ export default function WalkerHome() {
                    ⏳ En attente que {mission.owner} confirme vous avoir remis {mission.dog}...
                  </div>
                )}
+               {phase === 'pickup_photo' && (
+                 <div style={{ background: '#F0F9F5', border: '1.5px dashed #1D9E75', borderRadius: 14, padding: '18px 16px', textAlign: 'center' }}>
+                   <div style={{ fontSize: 30, marginBottom: 8 }}>📸</div>
+                   <div style={{ fontSize: 14, fontWeight: 700, color: '#0F6E56', marginBottom: 4 }}>
+                     Photo obligatoire avant de démarrer
+                   </div>
+                   <div style={{ fontSize: 12.5, color: '#555', marginBottom: 14, lineHeight: 1.4 }}>
+                     Prenez {mission.dog} en photo maintenant, au moment où {mission.owner} vous le confie. Ça sert de preuve pour vous deux.
+                   </div>
+                   <button onClick={() => document.getElementById('walkerPickupPhoto').click()} disabled={sendingPhoto}
+                     style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: sendingPhoto ? 'default' : 'pointer', opacity: sendingPhoto ? 0.6 : 1, fontFamily: 'inherit' }}>
+                     {sendingPhoto ? '⏳ Envoi...' : '📷 Prendre la photo'}
+                   </button>
+                   <input id="walkerPickupPhoto" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => handlePhoto(e, 'handover_photo')} />
+                 </div>
+               )}
                {phase === 'walking' && (
                  <button onClick={endWalk}
                    style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.4)' }}>
                    ✅ Terminer la balade
                  </button>
+               )}
+               {phase === 'return_photo' && (
+                 <div style={{ background: '#F0F9F5', border: '1.5px dashed #1D9E75', borderRadius: 14, padding: '18px 16px', textAlign: 'center' }}>
+                   <div style={{ fontSize: 30, marginBottom: 8 }}>📸</div>
+                   <div style={{ fontSize: 14, fontWeight: 700, color: '#0F6E56', marginBottom: 4 }}>
+                     Photo obligatoire avant de rendre {mission.dog}
+                   </div>
+                   <div style={{ fontSize: 12.5, color: '#555', marginBottom: 14, lineHeight: 1.4 }}>
+                     Prenez {mission.dog} en photo juste avant de le rendre à {mission.owner}. Ensuite, {mission.owner} devra confirmer qu'il/elle l'a bien récupéré.
+                   </div>
+                   <button onClick={() => document.getElementById('walkerReturnPhoto').click()} disabled={sendingPhoto}
+                     style={{ width: '100%', padding: 14, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: sendingPhoto ? 'default' : 'pointer', opacity: sendingPhoto ? 0.6 : 1, fontFamily: 'inherit' }}>
+                     {sendingPhoto ? '⏳ Envoi...' : '📷 Prendre la photo'}
+                   </button>
+                   <input id="walkerReturnPhoto" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => handlePhoto(e, 'return_photo')} />
+                 </div>
                )}
                {phase === 'returning' && (
                  <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '14px 16px', textAlign: 'center', fontSize: 13, color: '#B8860B', fontWeight: 600, animation: 'pulse 2s infinite' }}>
@@ -979,12 +1099,16 @@ export default function WalkerHome() {
                Aucune mission terminée pour l'instant
              </div>
            ) : history.map(h => (
-             <div key={h.id} style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 12 }}>
+             <div key={h.id} onClick={() => h.bookingId && openHistoryChat(h)}
+               style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 12, cursor: h.bookingId ? 'pointer' : 'default' }}>
                <div style={{ flex: 1 }}>
                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{h.dog} · {h.owner}</div>
                  <div style={{ fontSize: 12, color: '#888' }}>{h.date} · {h.duration} min · {'⭐'.repeat(h.rating)}</div>
                </div>
-               <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>+{h.price}€</div>
+               <div style={{ textAlign: 'right' }}>
+                 <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>+{h.price}€</div>
+                 {h.bookingId && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 2 }}>💬 Voir</div>}
+               </div>
              </div>
            ))}
          </div>
@@ -1037,7 +1161,7 @@ export default function WalkerHome() {
        ].map(t => (
          <button key={t.id} onClick={() => setTab(t.id)}
            style={{ flex: 1, border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 0', fontFamily: 'inherit', position: 'relative' }}>
-           {t.id === 'mission' && (phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning') && (
+           {t.id === 'mission' && (phase === 'navigating' || phase === 'arrived' || phase === 'walking' || phase === 'returning' || phase === 'pickup_photo' || phase === 'return_photo') && (
              <div style={{ position: 'absolute', top: 4, right: '25%', width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', animation: 'pulse 1s infinite' }} />
            )}
            <div style={{ fontSize: 20, marginBottom: 2 }}>{t.icon}</div>

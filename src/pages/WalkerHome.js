@@ -29,6 +29,7 @@ export default function WalkerHome() {
  const [historyChat, setHistoryChat] = useState(null); // { bookingId, owner, dog } | null — mission passée dont on consulte l'historique
  const [historyMessages, setHistoryMessages] = useState([]);
  const [historyLoading, setHistoryLoading] = useState(false);
+ const [clientRatings, setClientRatings] = useState([]); // notes (1-5) laissées par les propriétaires — la vraie note publique
  const chatEndRef = useRef(null);
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
@@ -49,6 +50,12 @@ export default function WalkerHome() {
        const { data: walksData } = await supabase
          .from('walks').select('*').eq('walker_id', session.user.id)
          .order('created_at', { ascending: false }).limit(200);
+       // La vraie note publique du promeneur vient des propriétaires
+       // (une note par propriétaire et par balade), pas d'une auto-évaluation.
+       const { data: ratedBookings } = await supabase
+         .from('bookings').select('owner_rating').eq('walker_id', session.user.id)
+         .not('owner_rating', 'is', null);
+       setClientRatings((ratedBookings || []).map(b => b.owner_rating));
        setProfile(profileData);
        setWalkerProfile(walkerData);
        setWalkerId(session.user.id);
@@ -85,9 +92,10 @@ export default function WalkerHome() {
    ? `${profile.first_name || ''}${profile.last_name ? ' ' + profile.last_name.charAt(0) + '.' : ''}`.trim() || 'Promeneur'
    : 'Promeneur';
  const totalWalks = history.length;
- const ratedWalks = history.filter(h => h.rating);
- const avgRating = ratedWalks.length > 0
-   ? (ratedWalks.reduce((sum, h) => sum + h.rating, 0) / ratedWalks.length).toFixed(1)
+ // Note publique = moyenne des notes laissées par les vrais propriétaires
+ // (table bookings.owner_rating), pas une note que le promeneur se donnerait.
+ const avgRating = clientRatings.length > 0
+   ? (clientRatings.reduce((sum, r) => sum + r, 0) / clientRatings.length).toFixed(1)
    : null;
  const ratingLabel = avgRating ? `⭐ ${avgRating}` : '✨ Nouveau';
  const totalMinutes = history.reduce((sum, h) => sum + (h.duration || 0), 0);

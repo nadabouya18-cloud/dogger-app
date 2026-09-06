@@ -4,6 +4,10 @@ import { supabase } from '../supabase';
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
+// Temps laissé au promeneur pour répondre à une nouvelle mission avant
+// qu'elle ne soit automatiquement refusée (et proposée à un autre promeneur).
+const MISSION_TIMER_SECONDS = 60;
+
 export default function WalkerHome() {
  const navigate = useNavigate();
  const [tab, setTab] = useState('home');
@@ -13,7 +17,7 @@ export default function WalkerHome() {
  const [available, setAvailable] = useState(false);
  const [phase, setPhase] = useState('idle');
  const [mission, setMission] = useState(null);
- const [missionTimer, setMissionTimer] = useState(30);
+ const [missionTimer, setMissionTimer] = useState(MISSION_TIMER_SECONDS);
  const [walkTime, setWalkTime] = useState(0);
  const [history, setHistory] = useState([]);
  const [rating, setRating] = useState(0);
@@ -136,7 +140,7 @@ export default function WalkerHome() {
        distance: b.distance_km != null ? `${b.distance_km} km` : 'proximité inconnue',
        instructions: b.instructions,
      });
-     setMissionTimer(30);
+     setMissionTimer(MISSION_TIMER_SECONDS);
      setPhase('mission_incoming');
    };
    checkForMission();
@@ -305,7 +309,7 @@ export default function WalkerHome() {
    return () => { stopped = true; clearInterval(interval); };
  }, [mission, phase]);
 
- // Timer mission 30s
+ // Timer mission
  useEffect(() => {
    if (phase !== 'mission_incoming') return;
    missionTimerRef.current = setInterval(() => {
@@ -317,7 +321,7 @@ export default function WalkerHome() {
          }
          setPhase('idle');
          setMission(null);
-         return 30;
+         return MISSION_TIMER_SECONDS;
        }
        return t - 1;
      });
@@ -581,7 +585,7 @@ export default function WalkerHome() {
        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 200 }}>
          <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '28px 24px 40px', width: '100%', maxWidth: 430, animation: 'slidein 0.3s ease' }}>
            <div style={{ textAlign: 'center', marginBottom: 20 }}>
-             <div style={{ width: 64, height: 64, borderRadius: '50%', background: missionTimer > 15 ? '#E1F5EE' : '#FFF0F0', border: `4px solid ${missionTimer > 15 ? '#1D9E75' : '#E24B4A'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px', animation: 'ring 1s infinite', fontSize: 22, fontWeight: 700, color: missionTimer > 15 ? '#1D9E75' : '#E24B4A' }}>
+             <div style={{ width: 64, height: 64, borderRadius: '50%', background: missionTimer > MISSION_TIMER_SECONDS / 2 ? '#E1F5EE' : '#FFF0F0', border: `4px solid ${missionTimer > MISSION_TIMER_SECONDS / 2 ? '#1D9E75' : '#E24B4A'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px', animation: 'ring 1s infinite', fontSize: 22, fontWeight: 700, color: missionTimer > MISSION_TIMER_SECONDS / 2 ? '#1D9E75' : '#E24B4A' }}>
                {missionTimer}s
              </div>
              <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>Nouvelle mission !</div>

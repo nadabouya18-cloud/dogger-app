@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [selectedDog, setSelectedDog] = useState(null);
   const [profile, setProfile] = useState(null);
   const [dogs, setDogs] = useState([]);
+  const [ownerStats, setOwnerStats] = useState({ walks: 0, spent: 0, walkers: 0 });
   const [loading, setLoading] = useState(true);
   const [userCoords, setUserCoords] = useState(null);
 
@@ -42,6 +43,13 @@ export default function Dashboard() {
   const [editLoading, setEditLoading] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
   const [newOwnerPhoto, setNewOwnerPhoto] = useState(null);
+
+  // Sécurité — changement de mot de passe
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   // Suivi de balade en direct
   const [showCancelWalk, setShowCancelWalk] = useState(false);
@@ -295,6 +303,17 @@ export default function Dashboard() {
         const { data: dogsData } = await supabase
           .from('dogs').select('*').eq('owner_id', session.user.id);
         if (dogsData) setDogs(dogsData);
+
+        // Vraies statistiques (balades terminées, dépenses, promeneurs
+        // rencontrés) — avant, ces chiffres étaient fixes ("12", "4.8⭐",
+        // "143€"), sans lien avec les balades réellement faites.
+        const { data: completedBookings } = await supabase
+          .from('bookings').select('price, walker_name').eq('owner_id', session.user.id).eq('status', 'completed');
+        if (completedBookings) {
+          const totalSpent = completedBookings.reduce((sum, b) => sum + (Number(b.price) || 0), 0);
+          const distinctWalkers = new Set(completedBookings.map(b => b.walker_name).filter(Boolean)).size;
+          setOwnerStats({ walks: completedBookings.length, spent: Math.round(totalSpent), walkers: distinctWalkers });
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -376,6 +395,34 @@ export default function Dashboard() {
       }
     } catch (e) { console.error(e); }
     finally { setEditLoading(false); }
+  };
+
+  // Vrai changement de mot de passe (Supabase gère l'authentification de la
+  // session en cours, donc pas besoin de redemander l'ancien mot de passe).
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    if (newPassword.length < 6) {
+      setPasswordError('Le mot de passe doit contenir au moins 6 caractères.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Les deux mots de passe ne correspondent pas.');
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        setPasswordError("Une erreur est survenue, réessayez.");
+        return;
+      }
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordSuccess(true);
+      setTimeout(() => setPasswordSuccess(false), 4000);
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const handleOwnerPhotoChange = (e) => {
@@ -575,12 +622,12 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Stats rapides */}
+            {/* Stats rapides — calculées à partir des vraies balades terminées */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               {[
-                { label: 'Balades', value: '12', icon: '🐾' },
-                { label: 'Note moy.', value: '4.8⭐', icon: '⭐' },
-                { label: 'Dépensé', value: '143€', icon: '💶' },
+                { label: 'Balades', value: String(ownerStats.walks), icon: '🐾' },
+                { label: 'Promeneurs', value: String(ownerStats.walkers), icon: '🧑' },
+                { label: 'Dépensé', value: `${ownerStats.spent}€`, icon: '💶' },
               ].map(s => (
                 <div key={s.label} style={{ background: '#fff', borderRadius: 14, padding: '14px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                   <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
@@ -815,6 +862,61 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* SÉCURITÉ & MOT DE PASSE */}
+        {tab === 'security' && (
+          <div style={{ animation: 'slidein 0.3s ease' }}>
+            <div onClick={() => setTab('profile')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
+              ← Retour au profil
+            </div>
+
+            <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Adresse e-mail</div>
+              <div style={{ fontSize: 14, color: '#1A1A1A', fontWeight: 500 }}>{profile?.email || '—'}</div>
+            </div>
+
+            <div style={{ background: '#fff', borderRadius: 16, padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 14 }}>Changer de mot de passe</div>
+
+              {passwordSuccess && (
+                <div style={{ background: '#E1F5EE', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
+                  ✅ Mot de passe mis à jour !
+                </div>
+              )}
+              {passwordError && (
+                <div style={{ background: '#FFF0F0', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#E24B4A', fontWeight: 600, textAlign: 'center' }}>
+                  {passwordError}
+                </div>
+              )}
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Nouveau mot de passe</div>
+                <input
+                  type="password"
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                  value={newPassword}
+                  placeholder="Au moins 6 caractères"
+                  onChange={e => setNewPassword(e.target.value)}
+                />
+              </div>
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Confirmer le nouveau mot de passe</div>
+                <input
+                  type="password"
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                  value={confirmPassword}
+                  placeholder="Retapez le mot de passe"
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  onKeyPress={e => e.key === 'Enter' && handleChangePassword()}
+                />
+              </div>
+              <button onClick={handleChangePassword} disabled={passwordSaving || !newPassword || !confirmPassword}
+                style={{ width: '100%', padding: 14, background: (passwordSaving || !newPassword || !confirmPassword) ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: (passwordSaving || !newPassword || !confirmPassword) ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: (passwordSaving || !newPassword || !confirmPassword) ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                {passwordSaving ? 'Mise à jour...' : '🔒 Mettre à jour le mot de passe'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* PROFIL */}
         {tab === 'profile' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
@@ -902,7 +1004,7 @@ export default function Dashboard() {
                 { icon: '🐾', label: 'Mes chiens', action: () => setTab('dogs') },
                 { icon: '📋', label: 'Historique des balades', action: openHistoryTab },
                 { icon: '🔔', label: 'Notifications', action: () => {} },
-                { icon: '🔒', label: 'Sécurité & mot de passe', action: () => {} },
+                { icon: '🔒', label: 'Sécurité & mot de passe', action: () => setTab('security') },
                 { icon: '❓', label: 'Aide & Support', action: () => {} },
               ].map((item, idx, arr) => (
                 <div key={item.label} onClick={item.action}

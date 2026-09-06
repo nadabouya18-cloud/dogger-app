@@ -34,6 +34,19 @@ export default function WalkerHome() {
  const [historyMessages, setHistoryMessages] = useState([]);
  const [historyLoading, setHistoryLoading] = useState(false);
  const [clientRatings, setClientRatings] = useState([]); // notes (1-5) laissées par les propriétaires — la vraie note publique
+
+ // Sécurité — changement de mot de passe
+ const [currentPassword, setCurrentPassword] = useState('');
+ const [newPassword, setNewPassword] = useState('');
+ const [confirmPassword, setConfirmPassword] = useState('');
+ const [passwordError, setPasswordError] = useState('');
+ const [passwordSuccess, setPasswordSuccess] = useState(false);
+ const [passwordSaving, setPasswordSaving] = useState(false);
+
+ // Historique calendrier (onglet Gains) — pour alléger l'affichage plutôt
+ // qu'une liste sans fin de toutes les missions jamais faites.
+ const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
+ const [calSelectedDate, setCalSelectedDate] = useState(null);
  const chatEndRef = useRef(null);
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
@@ -92,6 +105,52 @@ export default function WalkerHome() {
    navigate('/');
  };
 
+ // Vrai changement de mot de passe — même logique que côté propriétaire :
+ // Supabase n'a pas de fonction pour "juste vérifier" un mot de passe, donc
+ // on tente une reconnexion avec l'ancien avant d'appliquer le nouveau.
+ const handleChangePassword = async () => {
+   setPasswordError('');
+   if (!currentPassword) {
+     setPasswordError('Merci de saisir votre mot de passe actuel.');
+     return;
+   }
+   if (newPassword.length < 6) {
+     setPasswordError('Le nouveau mot de passe doit contenir au moins 6 caractères.');
+     return;
+   }
+   if (newPassword !== confirmPassword) {
+     setPasswordError('Les deux nouveaux mots de passe ne correspondent pas.');
+     return;
+   }
+   setPasswordSaving(true);
+   try {
+     const { data: { session } } = await supabase.auth.getSession();
+     if (!session?.user?.email) {
+       setPasswordError('Impossible de vérifier votre compte — reconnectez-vous et réessayez.');
+       return;
+     }
+     const { error: signInError } = await supabase.auth.signInWithPassword({
+       email: session.user.email, password: currentPassword,
+     });
+     if (signInError) {
+       setPasswordError('Mot de passe actuel incorrect.');
+       return;
+     }
+     const { error } = await supabase.auth.updateUser({ password: newPassword });
+     if (error) {
+       setPasswordError("Une erreur est survenue, réessayez.");
+       return;
+     }
+     setCurrentPassword('');
+     setNewPassword('');
+     setConfirmPassword('');
+     setPasswordSuccess(true);
+     setTimeout(() => setPasswordSuccess(false), 4000);
+   } finally {
+     setPasswordSaving(false);
+   }
+ };
+
  const displayName = profile
    ? `${profile.first_name || ''}${profile.last_name ? ' ' + profile.last_name.charAt(0) + '.' : ''}`.trim() || 'Promeneur'
    : 'Promeneur';
@@ -105,6 +164,24 @@ export default function WalkerHome() {
  const totalMinutes = history.reduce((sum, h) => sum + (h.duration || 0), 0);
  const hoursLabel = totalMinutes > 0 ? `${(totalMinutes / 60).toFixed(1)}h` : '0h';
  const clientCount = new Set(history.map(h => h.owner)).size;
+
+ // Calendrier de l'historique (onglet Gains) : on regroupe les missions par
+ // jour pour naviguer par date plutôt que de dérouler une liste sans fin.
+ const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+ const missionsByDay = {};
+ history.forEach(h => {
+   if (!h.createdAt) return;
+   const key = dayKey(new Date(h.createdAt));
+   (missionsByDay[key] = missionsByDay[key] || []).push(h);
+ });
+ const calYear = calMonth.getFullYear();
+ const calMonthIndex = calMonth.getMonth();
+ const calFirstWeekday = (new Date(calYear, calMonthIndex, 1).getDay() + 6) % 7; // lundi = 0
+ const calDaysInMonth = new Date(calYear, calMonthIndex + 1, 0).getDate();
+ const calCells = [
+   ...Array(calFirstWeekday).fill(null),
+   ...Array(calDaysInMonth).fill(0).map((_, i) => i + 1),
+ ];
  const now = new Date();
  const isSameDay = (d) => d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
  const isSameMonth = (d) => d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
@@ -911,21 +988,31 @@ export default function WalkerHome() {
                <div style={{ fontSize: 40, marginBottom: 10 }}>🐾</div>
                <p style={{ fontSize: 14, color: '#888' }}>Activez votre disponibilité pour recevoir vos premières missions !</p>
              </div>
-           ) : history.map(h => (
-             <div key={h.id} onClick={() => h.bookingId && openHistoryChat(h)}
-               style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 12, cursor: h.bookingId ? 'pointer' : 'default' }}>
-               <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🐕</div>
-               <div style={{ flex: 1 }}>
-                 <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{h.dog} · {h.owner}</div>
-                 <div style={{ fontSize: 12, color: '#888' }}>{h.date} · {h.duration} min</div>
-                 <div style={{ fontSize: 12 }}>{'⭐'.repeat(h.rating)}</div>
-               </div>
-               <div style={{ textAlign: 'right' }}>
-                 <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>+{h.price}€</div>
-                 {h.bookingId && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 2 }}>💬 Voir</div>}
-               </div>
-             </div>
-           ))}
+           ) : (
+             <>
+               {history.slice(0, 5).map(h => (
+                 <div key={h.id} onClick={() => h.bookingId && openHistoryChat(h)}
+                   style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 12, cursor: h.bookingId ? 'pointer' : 'default' }}>
+                   <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🐕</div>
+                   <div style={{ flex: 1 }}>
+                     <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{h.dog} · {h.owner}</div>
+                     <div style={{ fontSize: 12, color: '#888' }}>{h.date} · {h.duration} min</div>
+                     <div style={{ fontSize: 12 }}>{'⭐'.repeat(h.rating)}</div>
+                   </div>
+                   <div style={{ textAlign: 'right' }}>
+                     <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>+{h.price}€</div>
+                     {h.bookingId && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 2 }}>💬 Voir</div>}
+                   </div>
+                 </div>
+               ))}
+               {history.length > 5 && (
+                 <div onClick={() => setTab('gains')}
+                   style={{ textAlign: 'center', padding: '12px', color: '#1D9E75', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                   Voir tout l'historique →
+                 </div>
+               )}
+             </>
+           )}
          </div>
        )}
 
@@ -1110,19 +1197,67 @@ export default function WalkerHome() {
              <div style={{ textAlign: 'center', padding: '24px', background: '#fff', borderRadius: 16, fontSize: 14, color: '#888' }}>
                Aucune mission terminée pour l'instant
              </div>
-           ) : history.map(h => (
-             <div key={h.id} onClick={() => h.bookingId && openHistoryChat(h)}
-               style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 12, cursor: h.bookingId ? 'pointer' : 'default' }}>
-               <div style={{ flex: 1 }}>
-                 <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{h.dog} · {h.owner}</div>
-                 <div style={{ fontSize: 12, color: '#888' }}>{h.date} · {h.duration} min · {'⭐'.repeat(h.rating)}</div>
+           ) : (
+             <>
+               {/* Calendrier — pour retrouver une mission sans dérouler une liste sans fin */}
+               <div style={{ background: '#fff', borderRadius: 16, padding: '16px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                   <button onClick={() => { setCalMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1)); setCalSelectedDate(null); }}
+                     style={{ background: 'none', border: 'none', fontSize: 20, color: '#1D9E75', cursor: 'pointer', padding: '2px 10px', fontFamily: 'inherit' }}>‹</button>
+                   <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', textTransform: 'capitalize' }}>
+                     {calMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                   </div>
+                   <button onClick={() => { setCalMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1)); setCalSelectedDate(null); }}
+                     style={{ background: 'none', border: 'none', fontSize: 20, color: '#1D9E75', cursor: 'pointer', padding: '2px 10px', fontFamily: 'inherit' }}>›</button>
+                 </div>
+                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+                   {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
+                     <div key={i} style={{ textAlign: 'center', fontSize: 11, color: '#AAA', fontWeight: 600 }}>{d}</div>
+                   ))}
+                 </div>
+                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                   {calCells.map((day, i) => {
+                     if (day == null) return <div key={i} />;
+                     const key = dayKey(new Date(calYear, calMonthIndex, day));
+                     const dayMissions = missionsByDay[key] || [];
+                     const isSelected = calSelectedDate === key;
+                     return (
+                       <div key={i}
+                         onClick={() => dayMissions.length > 0 && setCalSelectedDate(sel => sel === key ? null : key)}
+                         style={{ textAlign: 'center', padding: '6px 0', borderRadius: 10, cursor: dayMissions.length > 0 ? 'pointer' : 'default', background: isSelected ? '#1D9E75' : 'transparent' }}>
+                         <div style={{ fontSize: 13, fontWeight: dayMissions.length > 0 ? 700 : 400, color: isSelected ? '#fff' : (dayMissions.length > 0 ? '#1A1A1A' : '#CCC') }}>
+                           {day}
+                         </div>
+                         {dayMissions.length > 0 && (
+                           <div style={{ width: 5, height: 5, borderRadius: '50%', background: isSelected ? '#fff' : '#1D9E75', margin: '3px auto 0' }} />
+                         )}
+                       </div>
+                     );
+                   })}
+                 </div>
                </div>
-               <div style={{ textAlign: 'right' }}>
-                 <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>+{h.price}€</div>
-                 {h.bookingId && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 2 }}>💬 Voir</div>}
-               </div>
-             </div>
-           ))}
+
+               {calSelectedDate ? (
+                 (missionsByDay[calSelectedDate] || []).map(h => (
+                   <div key={h.id} onClick={() => h.bookingId && openHistoryChat(h)}
+                     style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 12, cursor: h.bookingId ? 'pointer' : 'default' }}>
+                     <div style={{ flex: 1 }}>
+                       <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{h.dog} · {h.owner}</div>
+                       <div style={{ fontSize: 12, color: '#888' }}>{h.date} · {h.duration} min · {'⭐'.repeat(h.rating)}</div>
+                     </div>
+                     <div style={{ textAlign: 'right' }}>
+                       <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>+{h.price}€</div>
+                       {h.bookingId && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 2 }}>💬 Voir</div>}
+                     </div>
+                   </div>
+                 ))
+               ) : (
+                 <div style={{ textAlign: 'center', padding: '20px', background: '#fff', borderRadius: 16, fontSize: 13, color: '#888' }}>
+                   Touchez un jour marqué d'un point pour voir vos missions de ce jour-là.
+                 </div>
+               )}
+             </>
+           )}
          </div>
        )}
 
@@ -1147,6 +1282,7 @@ export default function WalkerHome() {
                { icon: '📋', label: 'Mes disponibilités' },
                { icon: '🏦', label: 'Informations bancaires' },
                { icon: '📱', label: 'Notifications' },
+               { icon: '🔒', label: 'Sécurité & mot de passe', onClick: () => setTab('security') },
                { icon: '❓', label: 'Aide & Support' },
                { icon: '🚪', label: 'Se déconnecter', color: '#E24B4A', onClick: handleLogout },
              ].map((item, idx, arr) => (
@@ -1157,6 +1293,71 @@ export default function WalkerHome() {
                  <span style={{ marginLeft: 'auto', color: '#CCC', fontSize: 18 }}>›</span>
                </div>
              ))}
+           </div>
+         </div>
+       )}
+
+       {/* SÉCURITÉ & MOT DE PASSE */}
+       {tab === 'security' && (
+         <div style={{ animation: 'slidein 0.3s ease' }}>
+           <div onClick={() => setTab('profile')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
+             ← Retour au profil
+           </div>
+
+           <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+             <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Adresse e-mail</div>
+             <div style={{ fontSize: 14, color: '#1A1A1A', fontWeight: 500 }}>{profile?.email || '—'}</div>
+           </div>
+
+           <div style={{ background: '#fff', borderRadius: 16, padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+             <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 14 }}>Changer de mot de passe</div>
+
+             {passwordSuccess && (
+               <div style={{ background: '#E1F5EE', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
+                 ✅ Mot de passe mis à jour !
+               </div>
+             )}
+             {passwordError && (
+               <div style={{ background: '#FFF0F0', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#E24B4A', fontWeight: 600, textAlign: 'center' }}>
+                 {passwordError}
+               </div>
+             )}
+
+             <div style={{ marginBottom: 14 }}>
+               <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Mot de passe actuel</div>
+               <input
+                 type="password"
+                 style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                 value={currentPassword}
+                 placeholder="Votre mot de passe actuel"
+                 onChange={e => setCurrentPassword(e.target.value)}
+               />
+             </div>
+             <div style={{ marginBottom: 14 }}>
+               <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Nouveau mot de passe</div>
+               <input
+                 type="password"
+                 style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                 value={newPassword}
+                 placeholder="Au moins 6 caractères"
+                 onChange={e => setNewPassword(e.target.value)}
+               />
+             </div>
+             <div style={{ marginBottom: 18 }}>
+               <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Confirmer le nouveau mot de passe</div>
+               <input
+                 type="password"
+                 style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                 value={confirmPassword}
+                 placeholder="Retapez le mot de passe"
+                 onChange={e => setConfirmPassword(e.target.value)}
+                 onKeyPress={e => e.key === 'Enter' && handleChangePassword()}
+               />
+             </div>
+             <button onClick={handleChangePassword} disabled={passwordSaving || !currentPassword || !newPassword || !confirmPassword}
+               style={{ width: '100%', padding: 14, background: (passwordSaving || !currentPassword || !newPassword || !confirmPassword) ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: (passwordSaving || !currentPassword || !newPassword || !confirmPassword) ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: (passwordSaving || !currentPassword || !newPassword || !confirmPassword) ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+               {passwordSaving ? 'Vérification...' : '🔒 Mettre à jour le mot de passe'}
+             </button>
            </div>
          </div>
        )}

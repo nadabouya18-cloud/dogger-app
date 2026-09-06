@@ -35,6 +35,13 @@ export default function WalkerHome() {
  const [historyLoading, setHistoryLoading] = useState(false);
  const [clientRatings, setClientRatings] = useState([]); // notes (1-5) laissées par les propriétaires — la vraie note publique
 
+ // Édition du profil (infos + bio + photo)
+ const [editMode, setEditMode] = useState(false);
+ const [editForm, setEditForm] = useState({ first_name: '', last_name: '', phone: '', bio: '' });
+ const [editLoading, setEditLoading] = useState(false);
+ const [editSuccess, setEditSuccess] = useState(false);
+ const [newWalkerPhoto, setNewWalkerPhoto] = useState(null);
+
  // Sécurité — changement de mot de passe
  const [currentPassword, setCurrentPassword] = useState('');
  const [newPassword, setNewPassword] = useState('');
@@ -75,6 +82,12 @@ export default function WalkerHome() {
        setClientRatings((ratedBookings || []).map(b => b.owner_rating));
        setProfile(profileData);
        setWalkerProfile(walkerData);
+       setEditForm({
+         first_name: profileData?.first_name || '',
+         last_name: profileData?.last_name || '',
+         phone: profileData?.phone || '',
+         bio: walkerData?.bio || '',
+       });
        setWalkerId(session.user.id);
        setAvailable(!!walkerData.available);
        if (walksData) {
@@ -103,6 +116,42 @@ export default function WalkerHome() {
  const handleLogout = async () => {
    await supabase.auth.signOut();
    navigate('/');
+ };
+
+ // Modifier son profil (infos + bio + photo) — même logique que côté
+ // propriétaire, avec en plus la bio qui vit sur walker_profiles (visible
+ // par les clients) plutôt que sur profiles.
+ const handleSaveProfile = async () => {
+   setEditLoading(true);
+   try {
+     const { data: { session } } = await supabase.auth.getSession();
+     if (!session) return;
+     const updates = {
+       first_name: editForm.first_name,
+       last_name: editForm.last_name,
+       phone: editForm.phone,
+     };
+     if (newWalkerPhoto) updates.photo_url = newWalkerPhoto;
+     const { error: profileError } = await supabase.from('profiles').update(updates).eq('id', session.user.id);
+     const { error: walkerError } = await supabase.from('walker_profiles').update({ bio: editForm.bio }).eq('id', session.user.id);
+     if (!profileError && !walkerError) {
+       setProfile(p => ({ ...p, ...updates }));
+       setWalkerProfile(w => ({ ...w, bio: editForm.bio }));
+       setEditSuccess(true);
+       setEditMode(false);
+       setNewWalkerPhoto(null);
+       setTimeout(() => setEditSuccess(false), 3000);
+     }
+   } catch (e) { console.error(e); }
+   finally { setEditLoading(false); }
+ };
+
+ const handleWalkerPhotoChange = (e) => {
+   const file = e.target.files[0];
+   if (!file) return;
+   const reader = new FileReader();
+   reader.onload = (ev) => setNewWalkerPhoto(ev.target.result);
+   reader.readAsDataURL(file);
  };
 
  // Vrai changement de mot de passe — même logique que côté propriétaire :
@@ -1264,19 +1313,99 @@ export default function WalkerHome() {
        {/* PROFIL */}
        {tab === 'profile' && (
          <div style={{ animation: 'slidein 0.3s ease' }}>
+
+           {editSuccess && (
+             <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
+               ✅ Profil mis à jour avec succès !
+             </div>
+           )}
+
+           {/* Photo profil */}
            <div style={{ background: '#fff', borderRadius: 18, padding: '24px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
-             <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, margin: '0 auto 12px', overflow: 'hidden' }}>
-               {profile?.photo_url ? <img src={profile.photo_url} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🧑'}
+             <div style={{ position: 'relative', display: 'inline-block', marginBottom: 12 }}>
+               <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#E1F5EE', overflow: 'hidden', border: '3px solid #1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36 }}>
+                 {(newWalkerPhoto || profile?.photo_url)
+                   ? <img src={newWalkerPhoto || profile.photo_url} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                   : '🧑'
+                 }
+               </div>
+               <div onClick={() => document.getElementById('walkerPhotoInput').click()}
+                 style={{ position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14 }}>
+                 ✏
+               </div>
+               <input id="walkerPhotoInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleWalkerPhotoChange} />
              </div>
              <div style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 4 }}>{displayName}</div>
              <div style={{ fontSize: 14, color: '#1D9E75', marginBottom: 4 }}>{ratingLabel} · {totalWalks} balade{totalWalks > 1 ? 's' : ''}</div>
              <div style={{ fontSize: 13, color: '#888' }}>Promeneur Dogger 🐾</div>
-             {walkerProfile?.bio && (
-               <div style={{ marginTop: 16, textAlign: 'left', background: '#F8FAF9', borderRadius: 12, padding: '14px 16px', fontSize: 13, color: '#555', lineHeight: 1.5 }}>
-                 {walkerProfile.bio}
+           </div>
+
+           {/* Infos modifiables */}
+           <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+               <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>Mes informations</div>
+               <button onClick={() => setEditMode(e => !e)}
+                 style={{ background: editMode ? '#FFF0F0' : '#E1F5EE', border: 'none', color: editMode ? '#E24B4A' : '#1D9E75', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '4px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                 {editMode ? 'Annuler' : '✏️ Modifier'}
+               </button>
+             </div>
+
+             {editMode ? (
+               <div>
+                 {[
+                   { label: 'Prénom', key: 'first_name', placeholder: 'Karim' },
+                   { label: 'Nom', key: 'last_name', placeholder: 'Benali' },
+                   { label: 'Téléphone', key: 'phone', placeholder: '6 12 34 56 78' },
+                 ].map(f => (
+                   <div key={f.key} style={{ marginBottom: 14 }}>
+                     <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>{f.label}</div>
+                     <input
+                       style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                       value={editForm[f.key]}
+                       placeholder={f.placeholder}
+                       onChange={e => setEditForm(ef => ({ ...ef, [f.key]: e.target.value }))}
+                     />
+                   </div>
+                 ))}
+                 <div style={{ marginBottom: 18 }}>
+                   <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Présentation (visible par les propriétaires)</div>
+                   <textarea
+                     style={{ width: '100%', minHeight: 80, padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box', resize: 'vertical' }}
+                     value={editForm.bio}
+                     placeholder="Présentez-vous en quelques mots..."
+                     onChange={e => setEditForm(ef => ({ ...ef, bio: e.target.value }))}
+                   />
+                 </div>
+                 <button onClick={handleSaveProfile} disabled={editLoading}
+                   style={{ width: '100%', padding: 14, background: editLoading ? '#A8D5C4' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: editLoading ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                   {editLoading ? 'Sauvegarde...' : '✅ Sauvegarder'}
+                 </button>
+               </div>
+             ) : (
+               <div>
+                 {[
+                   { icon: '👤', label: 'Prénom', value: profile?.first_name },
+                   { icon: '👤', label: 'Nom', value: profile?.last_name },
+                   { icon: '📧', label: 'Email', value: profile?.email || '—' },
+                   { icon: '📱', label: 'Téléphone', value: profile?.phone ? `+33 ${profile.phone}` : '—' },
+                 ].map((item, idx, arr) => (
+                   <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid #F8F8F8' }}>
+                     <span style={{ fontSize: 18 }}>{item.icon}</span>
+                     <div style={{ flex: 1 }}>
+                       <div style={{ fontSize: 11, color: '#AAA', marginBottom: 1 }}>{item.label}</div>
+                       <div style={{ fontSize: 14, color: '#1A1A1A', fontWeight: 500 }}>{item.value || '—'}</div>
+                     </div>
+                   </div>
+                 ))}
+                 {walkerProfile?.bio && (
+                   <div style={{ marginTop: 12, textAlign: 'left', background: '#F8FAF9', borderRadius: 12, padding: '14px 16px', fontSize: 13, color: '#555', lineHeight: 1.5 }}>
+                     {walkerProfile.bio}
+                   </div>
+                 )}
                </div>
              )}
            </div>
+
            <div style={{ background: '#fff', borderRadius: 16, padding: '4px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
              {[
                { icon: '📋', label: 'Mes disponibilités' },

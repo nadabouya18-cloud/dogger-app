@@ -15,6 +15,12 @@ const DURATIONS = [
   { id: 90, label: '1h30' },   { id: 120, label: '2h' },
 ];
 
+// Temps qu'on laisse à un promeneur pour répondre avant d'abandonner la
+// demande — doit rester nettement au-dessus du temps de réponse laissé au
+// promeneur côté WalkerHome.js (sinon on abandonnerait avant même qu'il ait
+// pu répondre).
+const WALKER_RESPONSE_TIMEOUT_MS = 90000;
+
 const HOME_DURATIONS = [
   { id: 300,   label: '5h',        desc: 'Demi-journée', price: 35  },
   { id: 720,   label: '12h',       desc: 'Journée',      price: 55  },
@@ -662,7 +668,7 @@ export default function BookingFlow() {
         clearInterval(matchPollRef.current);
         matchPollRef.current = null;
         startRealWalkSearch();
-      } else if (Date.now() - startedAt > 45000) {
+      } else if (Date.now() - startedAt > WALKER_RESPONSE_TIMEOUT_MS) {
         clearInterval(matchPollRef.current);
         matchPollRef.current = null;
         // On libère la réservation abandonnée : sans ça elle reste "pending"

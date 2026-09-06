@@ -52,6 +52,13 @@ export default function Dashboard() {
   const [newMessage, setNewMessage] = useState('');
   const [justFinished, setJustFinished] = useState(false);
 
+  // Noter le promeneur juste après la balade — la vraie note publique du
+  // promeneur doit venir du client, pas de lui-même.
+  const [lastCompletedBooking, setLastCompletedBooking] = useState(null); // { id, walkerName }
+  const [ownerRatingValue, setOwnerRatingValue] = useState(0);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [submittingRating, setSubmittingRating] = useState(false);
+
   // Historique des balades passées — consultation en lecture seule
   const [historyBookings, setHistoryBookings] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -65,6 +72,7 @@ export default function Dashboard() {
   const ownerIdRef = useRef(null);
   const chatEndRef = useRef(null);
   const lastBookingStatusRef = useRef(null);
+  const lastKnownBookingRef = useRef(null); // dernière réservation active connue, pour retrouver le promeneur à noter même si son statut a changé ailleurs
 
   useEffect(() => {
     if (location.hash === '#live') setTab('live');
@@ -93,8 +101,14 @@ export default function Dashboard() {
       // d'être marquée terminée côté promeneur — petit message de clôture.
       if (!found && (lastBookingStatusRef.current === 'walker_returning' || lastBookingStatusRef.current === 'incident')) {
         setJustFinished(true);
+        if (lastKnownBookingRef.current) {
+          setLastCompletedBooking({ id: lastKnownBookingRef.current.id, walkerName: lastKnownBookingRef.current.walker_name });
+          setOwnerRatingValue(0);
+          setRatingSubmitted(false);
+        }
       }
       lastBookingStatusRef.current = found?.status || null;
+      if (found) lastKnownBookingRef.current = found;
       setActiveBooking(found);
     };
     checkActiveBooking();
@@ -195,10 +209,27 @@ export default function Dashboard() {
     try {
       await supabase.from('bookings').update({ status: 'completed' }).eq('id', activeBooking.id);
       setJustFinished(true);
+      setLastCompletedBooking({ id: activeBooking.id, walkerName: activeBooking.walker_name });
+      setOwnerRatingValue(0);
+      setRatingSubmitted(false);
       setActiveBooking(null);
       lastBookingStatusRef.current = null;
     } finally {
       setConfirmingHandover(false);
+    }
+  };
+
+  // Le client note le promeneur pour cette balade (1 à 5) — c'est cette
+  // note qui doit compter publiquement, contrairement à une auto-évaluation.
+  const submitOwnerRating = async (stars) => {
+    if (!lastCompletedBooking?.id || submittingRating) return;
+    setSubmittingRating(true);
+    setOwnerRatingValue(stars);
+    try {
+      await supabase.from('bookings').update({ owner_rating: stars }).eq('id', lastCompletedBooking.id);
+      setRatingSubmitted(true);
+    } finally {
+      setSubmittingRating(false);
     }
   };
 
@@ -692,8 +723,34 @@ export default function Dashboard() {
               <div style={{ textAlign: 'center', padding: '48px 20px' }}>
                 <div style={{ fontSize: 48, marginBottom: 16 }}>{justFinished ? '🎉' : '😴'}</div>
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>{justFinished ? 'Balade terminée !' : 'Aucune balade en cours'}</h3>
-                <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>{justFinished ? "Votre chien est rentré, on espère qu'il s'est bien amusé 🐾" : 'Commandez une balade pour suivre votre chien en temps réel.'}</p>
-                <button onClick={() => { setJustFinished(false); navigate('/book'); }}
+                <p style={{ fontSize: 14, color: '#888', marginBottom: justFinished && lastCompletedBooking ? 20 : 24 }}>{justFinished ? "Votre chien est rentré, on espère qu'il s'est bien amusé 🐾" : 'Commandez une balade pour suivre votre chien en temps réel.'}</p>
+
+                {justFinished && lastCompletedBooking && (
+                  <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
+                    {ratingSubmitted ? (
+                      <div style={{ fontSize: 14, color: '#0F6E56', fontWeight: 600 }}>
+                        Merci pour votre note {'⭐'.repeat(ownerRatingValue)} !
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 4 }}>
+                          Comment s'est passée la balade avec {lastCompletedBooking.walkerName || 'votre promeneur'} ?
+                        </div>
+                        <div style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>Votre note l'aide à se faire connaître sur Dogger.</div>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
+                          {[1, 2, 3, 4, 5].map(s => (
+                            <span key={s} onClick={() => submitOwnerRating(s)}
+                              style={{ fontSize: 32, cursor: submittingRating ? 'default' : 'pointer', opacity: submittingRating ? 0.5 : 1 }}>
+                              {s <= ownerRatingValue ? '⭐' : '☆'}
+                            </span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <button onClick={() => { setJustFinished(false); setLastCompletedBooking(null); navigate('/book'); }}
                   style={{ padding: '14px 28px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
                   Commander une balade
                 </button>

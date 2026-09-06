@@ -45,6 +45,7 @@ export default function Dashboard() {
   const [newOwnerPhoto, setNewOwnerPhoto] = useState(null);
 
   // Sécurité — changement de mot de passe
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -397,25 +398,44 @@ export default function Dashboard() {
     finally { setEditLoading(false); }
   };
 
-  // Vrai changement de mot de passe (Supabase gère l'authentification de la
-  // session en cours, donc pas besoin de redemander l'ancien mot de passe).
+  // Vrai changement de mot de passe. Supabase ne propose pas de fonction
+  // "vérifier le mot de passe actuel" toute faite : on la simule en tentant
+  // une reconnexion avec l'ancien mot de passe avant d'appliquer le nouveau
+  // — si cette reconnexion échoue, l'ancien mot de passe est incorrect.
   const handleChangePassword = async () => {
     setPasswordError('');
+    if (!currentPassword) {
+      setPasswordError('Merci de saisir votre mot de passe actuel.');
+      return;
+    }
     if (newPassword.length < 6) {
-      setPasswordError('Le mot de passe doit contenir au moins 6 caractères.');
+      setPasswordError('Le nouveau mot de passe doit contenir au moins 6 caractères.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      setPasswordError('Les deux mots de passe ne correspondent pas.');
+      setPasswordError('Les deux nouveaux mots de passe ne correspondent pas.');
       return;
     }
     setPasswordSaving(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.email) {
+        setPasswordError('Impossible de vérifier votre compte — reconnectez-vous et réessayez.');
+        return;
+      }
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: session.user.email, password: currentPassword,
+      });
+      if (signInError) {
+        setPasswordError('Mot de passe actuel incorrect.');
+        return;
+      }
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) {
         setPasswordError("Une erreur est survenue, réessayez.");
         return;
       }
+      setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setPasswordSuccess(true);
@@ -889,6 +909,16 @@ export default function Dashboard() {
               )}
 
               <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Mot de passe actuel</div>
+                <input
+                  type="password"
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                  value={currentPassword}
+                  placeholder="Votre mot de passe actuel"
+                  onChange={e => setCurrentPassword(e.target.value)}
+                />
+              </div>
+              <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Nouveau mot de passe</div>
                 <input
                   type="password"
@@ -909,9 +939,9 @@ export default function Dashboard() {
                   onKeyPress={e => e.key === 'Enter' && handleChangePassword()}
                 />
               </div>
-              <button onClick={handleChangePassword} disabled={passwordSaving || !newPassword || !confirmPassword}
-                style={{ width: '100%', padding: 14, background: (passwordSaving || !newPassword || !confirmPassword) ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: (passwordSaving || !newPassword || !confirmPassword) ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: (passwordSaving || !newPassword || !confirmPassword) ? 'default' : 'pointer', fontFamily: 'inherit' }}>
-                {passwordSaving ? 'Mise à jour...' : '🔒 Mettre à jour le mot de passe'}
+              <button onClick={handleChangePassword} disabled={passwordSaving || !currentPassword || !newPassword || !confirmPassword}
+                style={{ width: '100%', padding: 14, background: (passwordSaving || !currentPassword || !newPassword || !confirmPassword) ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: (passwordSaving || !currentPassword || !newPassword || !confirmPassword) ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: (passwordSaving || !currentPassword || !newPassword || !confirmPassword) ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                {passwordSaving ? 'Vérification...' : '🔒 Mettre à jour le mot de passe'}
               </button>
             </div>
           </div>

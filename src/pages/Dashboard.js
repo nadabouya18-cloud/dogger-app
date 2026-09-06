@@ -55,6 +55,7 @@ export default function Dashboard() {
   // Noter le promeneur juste après la balade — la vraie note publique du
   // promeneur doit venir du client, pas de lui-même.
   const [lastCompletedBooking, setLastCompletedBooking] = useState(null); // { id, walkerName }
+  const [showRatingModal, setShowRatingModal] = useState(false);
   const [ownerRatingValue, setOwnerRatingValue] = useState(0);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [submittingRating, setSubmittingRating] = useState(false);
@@ -105,6 +106,7 @@ export default function Dashboard() {
           setLastCompletedBooking({ id: lastKnownBookingRef.current.id, walkerName: lastKnownBookingRef.current.walker_name });
           setOwnerRatingValue(0);
           setRatingSubmitted(false);
+          setShowRatingModal(true);
         }
       }
       lastBookingStatusRef.current = found?.status || null;
@@ -212,6 +214,7 @@ export default function Dashboard() {
       setLastCompletedBooking({ id: activeBooking.id, walkerName: activeBooking.walker_name });
       setOwnerRatingValue(0);
       setRatingSubmitted(false);
+      setShowRatingModal(true);
       setActiveBooking(null);
       lastBookingStatusRef.current = null;
     } finally {
@@ -221,13 +224,13 @@ export default function Dashboard() {
 
   // Le client note le promeneur pour cette balade (1 à 5) — c'est cette
   // note qui doit compter publiquement, contrairement à une auto-évaluation.
-  const submitOwnerRating = async (stars) => {
-    if (!lastCompletedBooking?.id || submittingRating) return;
+  const submitOwnerRating = async () => {
+    if (!lastCompletedBooking?.id || !ownerRatingValue || submittingRating) return;
     setSubmittingRating(true);
-    setOwnerRatingValue(stars);
     try {
-      await supabase.from('bookings').update({ owner_rating: stars }).eq('id', lastCompletedBooking.id);
+      await supabase.from('bookings').update({ owner_rating: ownerRatingValue }).eq('id', lastCompletedBooking.id);
       setRatingSubmitted(true);
+      setShowRatingModal(false);
     } finally {
       setSubmittingRating(false);
     }
@@ -723,32 +726,11 @@ export default function Dashboard() {
               <div style={{ textAlign: 'center', padding: '48px 20px' }}>
                 <div style={{ fontSize: 48, marginBottom: 16 }}>{justFinished ? '🎉' : '😴'}</div>
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>{justFinished ? 'Balade terminée !' : 'Aucune balade en cours'}</h3>
-                <p style={{ fontSize: 14, color: '#888', marginBottom: justFinished && lastCompletedBooking ? 20 : 24 }}>{justFinished ? "Votre chien est rentré, on espère qu'il s'est bien amusé 🐾" : 'Commandez une balade pour suivre votre chien en temps réel.'}</p>
-
-                {justFinished && lastCompletedBooking && (
-                  <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', textAlign: 'center' }}>
-                    {ratingSubmitted ? (
-                      <div style={{ fontSize: 14, color: '#0F6E56', fontWeight: 600 }}>
-                        Merci pour votre note {'⭐'.repeat(ownerRatingValue)} !
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 4 }}>
-                          Comment s'est passée la balade avec {lastCompletedBooking.walkerName || 'votre promeneur'} ?
-                        </div>
-                        <div style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>Votre note l'aide à se faire connaître sur Dogger.</div>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
-                          {[1, 2, 3, 4, 5].map(s => (
-                            <span key={s} onClick={() => submitOwnerRating(s)}
-                              style={{ fontSize: 32, cursor: submittingRating ? 'default' : 'pointer', opacity: submittingRating ? 0.5 : 1 }}>
-                              {s <= ownerRatingValue ? '⭐' : '☆'}
-                            </span>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
+                <p style={{ fontSize: 14, color: '#888', marginBottom: 24 }}>
+                  {justFinished
+                    ? (ratingSubmitted ? `Merci pour votre note ${'⭐'.repeat(ownerRatingValue)} !` : "Votre chien est rentré, on espère qu'il s'est bien amusé 🐾")
+                    : 'Commandez une balade pour suivre votre chien en temps réel.'}
+                </p>
 
                 <button onClick={() => { setJustFinished(false); setLastCompletedBooking(null); navigate('/book'); }}
                   style={{ padding: '14px 28px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
@@ -958,6 +940,31 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
+
+      {/* NOTER LE PROMENEUR — même format que côté promeneur (Balade terminée !) */}
+      {showRatingModal && lastCompletedBooking && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: '#fff', borderRadius: '24px 24px 0 0', padding: '28px 24px 40px', width: '100%', maxWidth: 430 }}>
+            <h3 style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 4, textAlign: 'center' }}>Balade terminée ! 🎉</h3>
+            <p style={{ fontSize: 14, color: '#888', marginBottom: 20, textAlign: 'center' }}>Notez votre expérience avec {lastCompletedBooking.walkerName || 'votre promeneur'}</p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 24 }}>
+              {[1, 2, 3, 4, 5].map(s => (
+                <div key={s} onClick={() => setOwnerRatingValue(s)}
+                  style={{ fontSize: 36, cursor: 'pointer', filter: s <= ownerRatingValue ? 'none' : 'grayscale(1)', transition: 'all 0.2s', transform: s <= ownerRatingValue ? 'scale(1.2)' : 'scale(1)' }}>
+                  ⭐
+                </div>
+              ))}
+            </div>
+            <button onClick={submitOwnerRating} disabled={!ownerRatingValue || submittingRating}
+              style={{ width: '100%', padding: 16, background: ownerRatingValue ? 'linear-gradient(135deg, #1D9E75, #0F6E56)' : '#F0F0F0', color: ownerRatingValue ? '#fff' : '#AAA', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: ownerRatingValue ? 'pointer' : 'default', fontFamily: 'inherit', marginBottom: 14 }}>
+              {submittingRating ? 'Envoi...' : 'Envoyer ma note'}
+            </button>
+            <div onClick={() => setShowRatingModal(false)} style={{ textAlign: 'center', fontSize: 13, color: '#AAA', cursor: 'pointer' }}>
+              Plus tard
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DISCUSSION AVEC LE PROMENEUR */}
       {showChat && activeBooking && (

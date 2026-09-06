@@ -50,8 +50,14 @@ export default function Dashboard() {
   const [showChat, setShowChat] = useState(false);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [sendingPhoto, setSendingPhoto] = useState(false);
   const [justFinished, setJustFinished] = useState(false);
+
+  // Historique des balades passées — consultation en lecture seule
+  const [historyBookings, setHistoryBookings] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyChat, setHistoryChat] = useState(null); // booking sélectionnée pour revoir sa conversation
+  const [historyMessages, setHistoryMessages] = useState([]);
+  const [historyMsgLoading, setHistoryMsgLoading] = useState(false);
 
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -208,6 +214,35 @@ export default function Dashboard() {
     setActiveBooking(b => b ? { ...b, status: 'incident' } : b);
   };
 
+  // Historique des balades passées — pour retrouver une conversation ou une
+  // photo d'une balade déjà terminée (plus jamais "aucune trace de la conv").
+  const openHistoryTab = async () => {
+    setTab('history');
+    if (!ownerIdRef.current) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) ownerIdRef.current = session.user.id;
+    }
+    if (!ownerIdRef.current) return;
+    setHistoryLoading(true);
+    const { data } = await supabase
+      .from('bookings').select('*').eq('owner_id', ownerIdRef.current)
+      .in('status', ['completed', 'cancelled', 'incident'])
+      .order('created_at', { ascending: false }).limit(50);
+    setHistoryBookings(data || []);
+    setHistoryLoading(false);
+  };
+
+  const openHistoryChat = async (booking) => {
+    setHistoryChat(booking);
+    setHistoryMsgLoading(true);
+    setHistoryMessages([]);
+    const { data } = await supabase
+      .from('booking_messages').select('*').eq('booking_id', booking.id)
+      .order('created_at', { ascending: true });
+    setHistoryMessages(data || []);
+    setHistoryMsgLoading(false);
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -356,6 +391,11 @@ export default function Dashboard() {
 
   const dogName = activeBooking?.dog_name || dogs[0]?.name || 'Votre chien';
   const photoUrl = newOwnerPhoto || profile?.photo_url;
+
+  // Photos "état des lieux" prises par le promeneur — à la prise en charge
+  // et au retour — pour vérifier avant de confirmer, comme chez Yego.
+  const handoverPhoto = [...messages].reverse().find(m => m.kind === 'handover_photo');
+  const returnPhoto = [...messages].reverse().find(m => m.kind === 'return_photo');
 
   if (loading) {
     return (
@@ -561,6 +601,12 @@ export default function Dashboard() {
                       <div style={{ width: `${Math.min(100, (walkTime / ((activeBooking.duration || 1) * 60)) * 100)}%`, background: '#1D9E75', borderRadius: 10, height: 6, transition: 'width 1s linear' }} />
                     </div>
                   )}
+                  {handoverPhoto && ['walking', 'walker_returning', 'incident'].includes(activeBooking.status) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#F8FAF9', borderRadius: 12, padding: '8px 10px', marginBottom: 12 }}>
+                      <img src={handoverPhoto.image_url} alt="prise en charge" style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover' }} />
+                      <div style={{ fontSize: 12, color: '#555' }}>📸 Photo prise à la remise de {activeBooking.dog_name || 'votre chien'}</div>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {LIVE_STEPS.map((s, i) => {
                       const currentIdx = LIVE_STEPS.findIndex(x => x.status === activeBooking.status);
@@ -593,6 +639,12 @@ export default function Dashboard() {
                     <div style={{ fontSize: 14, color: '#0F6E56', fontWeight: 600, marginBottom: 12 }}>
                       🐾 {activeBooking.walker_name || 'Le promeneur'} dit avoir terminé la balade et vous ramener {activeBooking.dog_name || 'votre chien'}.
                     </div>
+                    {returnPhoto && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 12, color: '#0F6E56', fontWeight: 600, marginBottom: 6 }}>📸 Photo prise par {activeBooking.walker_name || 'le promeneur'} juste avant de vous le rendre :</div>
+                        <img src={returnPhoto.image_url} alt="retour du chien" style={{ width: 140, height: 140, borderRadius: 14, objectFit: 'cover' }} />
+                      </div>
+                    )}
                     <button onClick={confirmReturnReal} disabled={confirmingHandover}
                       style={{ width: '100%', padding: 15, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: confirmingHandover ? 'default' : 'pointer', opacity: confirmingHandover ? 0.7 : 1, marginBottom: 10 }}>
                       ✅ J'ai bien récupéré mon chien
@@ -613,6 +665,12 @@ export default function Dashboard() {
                     <div style={{ fontSize: 13, color: '#B8860B', background: '#FFF8E1', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontWeight: 600 }}>
                       Si vous êtes inquiète pour la sécurité de votre chien, contactez la police (17) sans attendre.
                     </div>
+                    {returnPhoto && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 12, color: '#555', fontWeight: 600, marginBottom: 6 }}>📸 Dernière photo prise par {activeBooking.walker_name || 'le promeneur'} :</div>
+                        <img src={returnPhoto.image_url} alt="retour du chien" style={{ width: 140, height: 140, borderRadius: 14, objectFit: 'cover' }} />
+                      </div>
+                    )}
                     <button onClick={confirmReturnReal} disabled={confirmingHandover}
                       style={{ width: '100%', padding: 14, background: 'transparent', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: confirmingHandover ? 'default' : 'pointer', fontFamily: 'inherit' }}>
                       ✅ En fait, tout va bien — marquer comme résolu
@@ -683,6 +741,38 @@ export default function Dashboard() {
               <div style={{ fontSize: 28, marginBottom: 6 }}>➕</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#888' }}>Ajouter un chien</div>
             </div>
+          </div>
+        )}
+
+        {/* HISTORIQUE DES BALADES */}
+        {tab === 'history' && (
+          <div style={{ animation: 'slidein 0.3s ease' }}>
+            <div onClick={() => setTab('profile')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
+              ← Retour au profil
+            </div>
+            {historyLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#888', fontSize: 14 }}>Chargement...</div>
+            ) : historyBookings.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+                <p style={{ fontSize: 14, color: '#888' }}>Aucune balade terminée pour l'instant</p>
+              </div>
+            ) : historyBookings.map(b => {
+              const statusLabel = b.status === 'completed' ? '✅ Terminée'
+                : b.status === 'incident' ? '⚠️ Signalement'
+                : '❌ Annulée';
+              return (
+                <div key={b.id} onClick={() => openHistoryChat(b)}
+                  style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{b.dog_name || 'Chien'} · {b.walker_name || 'Promeneur'}</div>
+                    <div style={{ fontSize: 12, color: b.status === 'incident' ? '#E24B4A' : '#888' }}>{statusLabel}</div>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888' }}>{new Date(b.created_at).toLocaleDateString('fr-FR')} · {b.duration} min</div>
+                  <div style={{ fontSize: 12, color: '#1D9E75', marginTop: 4, fontWeight: 600 }}>💬 Voir la conversation</div>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -771,7 +861,7 @@ export default function Dashboard() {
             <div style={{ background: '#fff', borderRadius: 16, padding: '4px 16px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
               {[
                 { icon: '🐾', label: 'Mes chiens', action: () => setTab('dogs') },
-                { icon: '📋', label: 'Historique des balades', action: () => {} },
+                { icon: '📋', label: 'Historique des balades', action: openHistoryTab },
                 { icon: '🔔', label: 'Notifications', action: () => {} },
                 { icon: '🔒', label: 'Sécurité & mot de passe', action: () => {} },
                 { icon: '❓', label: 'Aide & Support', action: () => {} },
@@ -829,9 +919,14 @@ export default function Dashboard() {
               if (msg.kind === 'event') {
                 return <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>;
               }
-              if (msg.kind === 'photo') {
+              if (msg.kind === 'photo' || msg.kind === 'handover_photo' || msg.kind === 'return_photo') {
                 return (
                   <div key={msg.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start' }}>
+                    {msg.kind !== 'photo' && (
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textAlign: mine ? 'right' : 'left' }}>
+                        {msg.kind === 'handover_photo' ? '📸 Photo à la prise en charge' : '📸 Photo au retour'}
+                      </div>
+                    )}
                     <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
                   </div>
                 );
@@ -851,6 +946,53 @@ export default function Dashboard() {
               placeholder="Écrire un message..." value={newMessage}
               onChange={e => setNewMessage(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()} />
             <button onClick={sendMessage} style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>➤</button>
+          </div>
+        </div>
+      )}
+
+      {/* HISTORIQUE D'UNE BALADE PASSÉE : conversation + photos, lecture seule */}
+      {historyChat && (
+        <div style={{ position: 'fixed', inset: 0, background: '#F8FAF9', zIndex: 400, display: 'flex', flexDirection: 'column', maxWidth: 430, margin: '0 auto' }}>
+          <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 20px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={() => setHistoryChat(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer' }}>← Retour</button>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{historyChat.dog_name || 'Chien'} · {historyChat.walker_name || 'Promeneur'}</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>{new Date(historyChat.created_at).toLocaleDateString('fr-FR')} · historique</div>
+            </div>
+          </div>
+          <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {historyMsgLoading ? (
+              <div style={{ textAlign: 'center', color: '#AAA', fontSize: 13, marginTop: 20 }}>Chargement...</div>
+            ) : historyMessages.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#AAA', fontSize: 13, marginTop: 20 }}>Aucun message pour cette balade</div>
+            ) : historyMessages.map(msg => {
+              const mine = msg.sender_id === ownerIdRef.current;
+              if (msg.kind === 'event') {
+                return <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>;
+              }
+              if (msg.kind === 'photo' || msg.kind === 'handover_photo' || msg.kind === 'return_photo') {
+                return (
+                  <div key={msg.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start' }}>
+                    {msg.kind !== 'photo' && (
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textAlign: mine ? 'right' : 'left' }}>
+                        {msg.kind === 'handover_photo' ? '📸 Photo à la prise en charge' : '📸 Photo au retour'}
+                      </div>
+                    )}
+                    <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
+                  </div>
+                );
+              }
+              return (
+                <div key={msg.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ maxWidth: '75%', background: mine ? '#1D9E75' : '#fff', color: mine ? '#fff' : '#1A1A1A', borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', padding: '10px 14px', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    {msg.text}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ padding: '14px 16px', background: '#fff', borderTop: '1px solid #F0F0F0', textAlign: 'center', fontSize: 12, color: '#AAA' }}>
+            Balade terminée — historique en lecture seule
           </div>
         </div>
       )}

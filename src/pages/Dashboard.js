@@ -15,6 +15,11 @@ const LIVE_STEPS = [
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
+// Sans réponse du promeneur pendant ce délai, une balade planifiée est
+// traitée comme un refus silencieux — sinon elle resterait "en attente"
+// indéfiniment sans que le propriétaire puisse choisir quelqu'un d'autre.
+const SCHEDULED_REQUEST_TIMEOUT_HOURS = 24;
+
 const CANCEL_REASONS = [
   "Je me suis trompé d'adresse",
   "Je me suis trompé de durée",
@@ -76,6 +81,14 @@ export default function Dashboard() {
   const [historyMessages, setHistoryMessages] = useState([]);
   const [historyMsgLoading, setHistoryMsgLoading] = useState(false);
 
+  // Balades planifiées à l'avance : envoyées à un vrai promeneur qui doit
+  // les confirmer — suivies ici, indépendamment de la balade "en direct".
+  const [scheduledBookings, setScheduledBookings] = useState([]);
+  const [schedChatBooking, setSchedChatBooking] = useState(null); // { id, walker_name }
+  const [schedChatMessages, setSchedChatMessages] = useState([]);
+  const [schedChatInput, setSchedChatInput] = useState('');
+  const [schedActionLoading, setSchedActionLoading] = useState(null);
+
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const walkerMarkerRef = useRef(null);
@@ -97,11 +110,17 @@ export default function Dashboard() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       ownerIdRef.current = session.user.id;
+      // Une balade planifiée à l'avance et déjà confirmée reste "accepted"
+      // jusqu'au jour J — on ne la traite comme "en cours maintenant" qu'à
+      // partir de ce jour-là, sinon elle prendrait toute la place ici dès
+      // sa confirmation, parfois des jours avant la balade elle-même.
+      const todayStr = new Date().toISOString().split('T')[0];
       const { data } = await supabase
         .from('bookings')
         .select('*')
         .eq('owner_id', session.user.id)
         .in('status', ['accepted', 'walker_arrived', 'walking', 'walker_returning', 'incident'])
+        .or(`is_scheduled.eq.false,scheduled_date.lte.${todayStr}`)
         .order('created_at', { ascending: false })
         .limit(1);
       if (stopped) return;
@@ -126,6 +145,74 @@ export default function Dashboard() {
     const interval = setInterval(checkActiveBooking, 5000);
     return () => { stopped = true; clearInterval(interval); };
   }, []);
+
+  // Vos balades planifiées à l'avance (Balade uniquement pour l'instant) —
+  // en attente de confirmation, déjà confirmées, ou sans réponse.
+  useEffect(() => {
+    let stopped = false;
+    const checkScheduled = async () => {
+      if (!ownerIdRef.current) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        ownerIdRef.current = session.user.id;
+      }
+      const { data } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('owner_id', ownerIdRef.current)
+        .eq('is_scheduled', true)
+        .in('status', ['pending', 'accepted', 'refused'])
+        .order('scheduled_date', { ascending: true });
+      if (stopped || !data) return;
+      const staleCutoff = Date.now() - SCHEDULED_REQUEST_TIMEOUT_HOURS * 3600 * 1000;
+      data.forEach(b => {
+        if (b.status === 'pending' && new Date(b.created_at).getTime() < staleCutoff) {
+          supabase.from('bookings').update({ status: 'refused' }).eq('id', b.id);
+          b.status = 'refused';
+        }
+      });
+      setScheduledBookings(data);
+    };
+    checkScheduled();
+    const interval = setInterval(checkScheduled, 5000);
+    return () => { stopped = true; clearInterval(interval); };
+  }, []);
+
+  // Discussion sur une balade planifiée pas encore (ou déjà) confirmée —
+  // même table de messages, fil indépendant de celui de la balade en direct.
+  const loadSchedChat = useCallback(async (bookingId) => {
+    const { data } = await supabase
+      .from('booking_messages').select('*').eq('booking_id', bookingId)
+      .order('created_at', { ascending: true });
+    setSchedChatMessages(data || []);
+  }, []);
+
+  useEffect(() => {
+    if (!schedChatBooking?.id) return;
+    loadSchedChat(schedChatBooking.id);
+    const interval = setInterval(() => loadSchedChat(schedChatBooking.id), 4000);
+    return () => clearInterval(interval);
+  }, [schedChatBooking?.id, loadSchedChat]);
+
+  const sendSchedMessage = async () => {
+    const text = schedChatInput.trim();
+    if (!text || !schedChatBooking?.id || !ownerIdRef.current) return;
+    setSchedChatInput('');
+    await supabase.from('booking_messages').insert({
+      booking_id: schedChatBooking.id, sender_id: ownerIdRef.current, kind: 'text', text,
+    });
+    loadSchedChat(schedChatBooking.id);
+  };
+
+  const cancelScheduledBooking = async (bookingId) => {
+    setSchedActionLoading(bookingId);
+    try {
+      await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', bookingId);
+      setScheduledBookings(prev => prev.filter(b => b.id !== bookingId));
+    } finally {
+      setSchedActionLoading(null);
+    }
+  };
 
   // Chrono de la balade : recalculé sur la vraie heure de départ à chaque
   // tick, pour rester juste même après une mise en veille du téléphone.
@@ -609,6 +696,48 @@ export default function Dashboard() {
                     </div>
                     <div style={{ position: 'absolute', bottom: -10, right: -10, fontSize: 48, opacity: 0.15 }}>🏠</div>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Balades planifiées à l'avance */}
+            {scheduledBookings.filter(b => b.id !== activeBooking?.id).length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A', marginBottom: 10 }}>📅 Vos balades planifiées</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {scheduledBookings.filter(b => b.id !== activeBooking?.id).map(b => {
+                    const dateLabel = b.scheduled_date ? new Date(`${b.scheduled_date}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
+                    return (
+                      <div key={b.id} style={{ background: '#fff', borderRadius: 16, padding: '14px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{dateLabel} à {b.scheduled_time}</div>
+                            <div style={{ fontSize: 12, color: '#888' }}>{b.service} · {b.dog_name}</div>
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap', background: b.status === 'accepted' ? '#E1F5EE' : b.status === 'refused' ? '#FFF0F0' : '#FFF8E1', color: b.status === 'accepted' ? '#0F6E56' : b.status === 'refused' ? '#E24B4A' : '#D97706' }}>
+                            {b.status === 'accepted' ? '✅ Confirmée' : b.status === 'refused' ? '❌ Sans réponse' : '⏳ En attente'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 13, color: '#555', marginBottom: 10 }}>
+                          {b.status === 'refused'
+                            ? `${b.walker_name || 'Le promeneur contacté'} n'a pas pu confirmer.`
+                            : `${b.status === 'accepted' ? 'Confirmée avec' : 'Demande envoyée à'} ${b.walker_name || 'un promeneur'}${b.walker_rating != null ? ` · ⭐ ${b.walker_rating}` : ''}`}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {b.status === 'refused' ? (
+                            <button onClick={() => navigate('/book/walk')} style={{ flex: 1, padding: '9px', background: '#1D9E75', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>🔄 Choisir un autre promeneur</button>
+                          ) : (
+                            <>
+                              <button onClick={() => setSchedChatBooking({ id: b.id, walker_name: b.walker_name })} style={{ flex: 1, padding: '9px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>💬 Discuter</button>
+                              {b.status === 'pending' && (
+                                <button onClick={() => cancelScheduledBooking(b.id)} disabled={schedActionLoading === b.id} style={{ padding: '9px 12px', background: 'transparent', color: '#E24B4A', border: '1.5px solid #FFD0D0', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Annuler</button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1142,6 +1271,32 @@ export default function Dashboard() {
               placeholder="Écrire un message..." value={newMessage}
               onChange={e => setNewMessage(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()} />
             <button onClick={sendMessage} style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>➤</button>
+          </div>
+        </div>
+      )}
+
+      {/* DISCUSSION SUR UNE BALADE PLANIFIÉE, avant ou après confirmation */}
+      {schedChatBooking && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 400 }} onClick={() => setSchedChatBooking(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 430, height: '70vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '16px', borderBottom: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 15, fontWeight: 700 }}>💬 {schedChatBooking.walker_name || 'Promeneur'}</span>
+              <button onClick={() => setSchedChatBooking(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {schedChatMessages.length === 0 && <div style={{ textAlign: 'center', color: '#AAA', fontSize: 13, marginTop: 20 }}>Écrivez-lui pour poser une question avant sa réponse.</div>}
+              {schedChatMessages.map(m => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: m.sender_id === ownerIdRef.current ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ maxWidth: '75%', background: m.sender_id === ownerIdRef.current ? '#1D9E75' : '#F0F0F0', color: m.sender_id === ownerIdRef.current ? '#fff' : '#1A1A1A', borderRadius: 14, padding: '8px 14px', fontSize: 14 }}>
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: '12px 16px', borderTop: '1px solid #F0F0F0', display: 'flex', gap: 8 }}>
+              <input value={schedChatInput} onChange={e => setSchedChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendSchedMessage()} placeholder="Votre message..." style={{ flex: 1, padding: '10px 14px', borderRadius: 20, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+              <button onClick={sendSchedMessage} style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer' }}>➤</button>
+            </div>
           </div>
         </div>
       )}

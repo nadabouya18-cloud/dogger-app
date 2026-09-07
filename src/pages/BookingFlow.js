@@ -151,6 +151,14 @@ export default function BookingFlow() {
   const [manualPickRefused, setManualPickRefused] = React.useState(false);
   const isManualPickRef = useRef(false);
 
+  // Balade planifiée (📅) : la demande est envoyée à un vrai promeneur —
+  // disponible à ce jour/cette heure d'après ses disponibilités déclarées —
+  // qui doit l'accepter. Contrairement au mode "maintenant", on n'attend pas
+  // en direct : la réponse arrive plus tard, suivie depuis le tableau de bord.
+  const [scheduledSentInfo, setScheduledSentInfo] = React.useState(null);
+  const [scheduledSending, setScheduledSending] = React.useState(false);
+  const [scheduledError, setScheduledError] = React.useState('');
+
   const mapRef = useRef(null);
   const walkerMapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -732,15 +740,129 @@ export default function BookingFlow() {
     }, 3000);
   };
 
+  // Jour de la semaine (0 = dimanche ... 6 = samedi) correspondant à la date
+  // choisie pour une Balade planifiée — sert à interroger les disponibilités
+  // déclarées par les promeneurs pour ce jour-là.
+  const scheduledDayOfWeek = () => walkDate ? new Date(`${walkDate}T00:00:00`).getDay() : null;
+
+  // Vrais promeneurs disponibles à un jour/heure précis (Balade planifiée),
+  // d'après leurs disponibilités déclarées — pas "en ligne maintenant" comme
+  // pour le mode immédiat, puisque le rendez-vous est dans le futur.
+  const fetchScheduledCandidates = async () => {
+    const dow = scheduledDayOfWeek();
+    if (dow == null || !walkTime) return [];
+    const { data } = await supabase.rpc('get_walkers_available_for_slot', {
+      p_service: 'walk', p_day_of_week: dow, p_time: walkTime,
+    });
+    let pool = data || [];
+    pool = pool.map(c => ({
+      ...c,
+      distanceKm: (userCoords && c.lat != null && c.lng != null)
+        ? distanceKm(userCoords.lat, userCoords.lng, c.lat, c.lng)
+        : null,
+    }));
+    pool.sort((a, b) => {
+      if (a.distanceKm != null && b.distanceKm != null) return a.distanceKm - b.distanceKm;
+      if (a.distanceKm != null) return -1;
+      if (b.distanceKm != null) return 1;
+      return (b.rating || 0) - (a.rating || 0);
+    });
+    return pool;
+  };
+
+  // Envoie la demande de Balade planifiée à un promeneur précis (choisi à la
+  // main, ou le premier du classement en automatique) et s'arrête là — pas
+  // d'attente en direct, la réponse est suivie depuis le tableau de bord.
+  const createScheduledBooking = async (chosen) => {
+    setScheduledSending(true);
+    setScheduledError('');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setScheduledSending(false); navigate('/login'); return; }
+    const svc = WALK_SERVICES.find(s => s.id === walkService);
+    const price = Math.round((svc?.pricePerMin || 0.3) * walkDuration);
+    const dog = userDogs.find(d => d.id === selectedDogs[0]);
+    const { data: profileData } = await supabase
+      .from('profiles').select('first_name,last_name,photo_url').eq('id', session.user.id).single();
+    const ownerName = profileData
+      ? `${profileData.first_name || ''}${profileData.last_name ? ' ' + profileData.last_name.charAt(0) + '.' : ''}`.trim()
+      : '';
+    const walkerName = chosen.first_name
+      ? `${chosen.first_name}${chosen.last_name ? ' ' + chosen.last_name.charAt(0) + '.' : ''}`
+      : 'Promeneur';
+    const bookingPayload = {
+      owner_id: session.user.id,
+      walker_id: chosen.id,
+      owner_name: ownerName || 'Propriétaire',
+      owner_photo_url: profileData?.photo_url || null,
+      dog_name: dog?.name || null,
+      dog_breed: dog?.breed || null,
+      dog_size: dog?.size || null,
+      dog_photo_url: dog?.photo_url || null,
+      service: svc?.name || 'Balade',
+      duration: walkDuration,
+      price,
+      address: walkAddress,
+      instructions: walkInstructions,
+      distance_km: chosen.distanceKm != null ? Math.round(chosen.distanceKm * 10) / 10 : null,
+      status: 'pending',
+      is_scheduled: true,
+      scheduled_date: walkDate,
+      scheduled_time: walkTime,
+      // On connaît déjà le promeneur visé (choisi ou trouvé automatiquement) —
+      // autant le montrer tout de suite au propriétaire, plutôt que de le lui
+      // cacher jusqu'à l'acceptation comme pour une demande immédiate.
+      walker_name: walkerName,
+      walker_rating: chosen.rating || null,
+      walker_total_walks: chosen.total_walks || 0,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: inserted, error: insertError } = await supabase
+      .from('bookings').insert(bookingPayload).select().single();
+    if (insertError || !inserted) {
+      setScheduledSending(false);
+      setScheduledError('Une erreur est survenue, réessayez.');
+      return;
+    }
+    setScheduledSentInfo({ bookingId: inserted.id, walkerName, date: walkDate, time: walkTime });
+    setScheduledSending(false);
+  };
+
+  // Automatch pour une Balade planifiée : on prend le promeneur dispo le
+  // plus proche à ce créneau (d'après ses disponibilités), sans relance
+  // silencieuse en cas de refus — voir l'écran d'erreur plus bas, qui laisse
+  // la main au propriétaire.
+  const startScheduledWalkAutomatch = async () => {
+    setScheduledError('');
+    setScheduledSending(true);
+    const pool = await fetchScheduledCandidates();
+    if (!pool.length) {
+      setScheduledSending(false);
+      setScheduledError("Aucun promeneur n'est disponible à ce créneau pour le moment. Essayez un autre horaire, ou choisissez-en un vous-même.");
+      return;
+    }
+    await createScheduledBooking(pool[0]);
+  };
+
   // Ouvre la liste des promeneurs dispo pour que le propriétaire choisisse
-  // lui-même (au lieu de l'automatch). On exclut ceux déjà essayés/refusés
-  // pour cette demande.
+  // lui-même (au lieu de l'automatch). En mode "maintenant" ce sont ceux
+  // disponibles en ligne ; en mode "planifier", ceux ayant déclaré être
+  // disponibles pour ce jour/cette heure précis. On exclut ceux déjà
+  // essayés/refusés pour cette demande.
   const openWalkerPicker = async () => {
     setMatchingError('');
     setManualPickRefused(false);
+    setScheduledError('');
     setPickerError('');
     setPickerLoading(true);
     setShowWalkerPicker(true);
+
+    if (walkMode === 'later') {
+      const pool = await fetchScheduledCandidates();
+      setPickerWalkers(pool);
+      setPickerLoading(false);
+      return;
+    }
+
     const { data: candidates, error: rpcError } = await supabase.rpc('get_available_walkers');
     if (rpcError) {
       setPickerError('Impossible de charger les promeneurs disponibles.');
@@ -766,6 +888,7 @@ export default function BookingFlow() {
 
   const chooseWalkerManually = (w) => {
     setShowWalkerPicker(false);
+    if (walkMode === 'later') { createScheduledBooking(w); return; }
     startRealWalkSearch(w);
   };
 
@@ -803,7 +926,11 @@ export default function BookingFlow() {
       setHomeConfirmed(true);
       return;
     }
-    if (flowType === 'walk') { startRealWalkSearch(); return; }
+    if (flowType === 'walk') {
+      if (walkMode === 'later') { startScheduledWalkAutomatch(); return; }
+      startRealWalkSearch();
+      return;
+    }
     setSearching(true);
   };
 
@@ -826,6 +953,34 @@ export default function BookingFlow() {
           <button onClick={() => startRealWalkSearch()} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginTop: 20, marginBottom: 10 }}>🔄 Réessayer</button>
         )}
         <button onClick={goToDashboard} style={{ width: '100%', padding: 13, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Annuler</button>
+      </div>
+    );
+  }
+
+  // ── ÉCHEC DE LA DEMANDE (BALADE PLANIFIÉE) ──────────────────────────────────
+  if (scheduledError && flowType === 'walk') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>{scheduledError}</h3>
+        <button onClick={openWalkerPicker} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginTop: 20, marginBottom: 10 }}>🎯 Choisir un promeneur</button>
+        <button onClick={startScheduledWalkAutomatch} style={{ width: '100%', padding: 13, background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>🔄 Réessayer l'automatique</button>
+        <button onClick={goToDashboard} style={{ width: '100%', padding: 13, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Annuler</button>
+      </div>
+    );
+  }
+
+  // ── DEMANDE ENVOYÉE (BALADE PLANIFIÉE) ──────────────────────────────────────
+  if (scheduledSentInfo && flowType === 'walk') {
+    const dateLabel = scheduledSentInfo.date
+      ? new Date(`${scheduledSentInfo.date}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+      : '';
+    return (
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>📅</div>
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Demande envoyée à {scheduledSentInfo.walkerName} !</h3>
+        <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Pour le {dateLabel} à {scheduledSentInfo.time}. Vous serez prévenu dès qu'il/elle confirme — retrouvez le statut et la discussion depuis « Vos balades planifiées » sur votre tableau de bord.</p>
+        <button onClick={goToDashboard} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>Retour à l'accueil</button>
       </div>
     );
   }
@@ -1402,10 +1557,10 @@ export default function BookingFlow() {
           {error && <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>⚠️ {error}</div>}
           {walkStep === 4 ? (
             <>
-              <button onClick={confirmSearch} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)', marginBottom: 10 }}>
-                ⚡ Trouver automatiquement
+              <button onClick={confirmSearch} disabled={scheduledSending} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: scheduledSending ? 'default' : 'pointer', opacity: scheduledSending ? 0.7 : 1, boxShadow: '0 4px 16px rgba(29,158,117,0.35)', marginBottom: 10 }}>
+                {scheduledSending ? 'Envoi en cours...' : walkMode === 'later' ? '⚡ Envoyer automatiquement' : '⚡ Trouver automatiquement'}
               </button>
-              <button onClick={openWalkerPicker} style={{ width: '100%', padding: 15, background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <button onClick={openWalkerPicker} disabled={scheduledSending} style={{ width: '100%', padding: 15, background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: scheduledSending ? 'default' : 'pointer', opacity: scheduledSending ? 0.7 : 1, fontFamily: 'inherit' }}>
                 🎯 Choisir mon promeneur
               </button>
             </>
@@ -1413,6 +1568,7 @@ export default function BookingFlow() {
             <button onClick={() => {
               setError('');
               if (walkStep === 1 && !walkAddress) { setError('Entrez votre adresse'); return; }
+              if (walkStep === 1 && walkMode === 'later' && (!walkDate || !walkTime)) { setError('Choisissez une date et une heure'); return; }
               if (walkStep === 2 && selectedDogs.length === 0) { setError('Sélectionnez au moins un chien'); return; }
               setWalkStep(walkStep + 1);
             }} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>

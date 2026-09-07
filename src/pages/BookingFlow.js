@@ -21,6 +21,12 @@ const DURATIONS = [
 // pu répondre).
 const WALKER_RESPONSE_TIMEOUT_MS = 90000;
 
+// Durée minimale d'affichage de l'écran "Recherche en cours" pour la Balade :
+// même si un promeneur accepte tout de suite, on ne bascule pas
+// instantanément sur le suivi — ça paraissait suspect ("hyper rapide"),
+// comme si aucune vraie recherche n'avait eu lieu.
+const MIN_SEARCH_DISPLAY_MS = 20000;
+
 const HOME_DURATIONS = [
   { id: 300,   label: '5h',        desc: 'Demi-journée', price: 35  },
   { id: 720,   label: '12h',       desc: 'Journée',      price: 55  },
@@ -157,6 +163,7 @@ export default function BookingFlow() {
   const matchBookingIdRef = useRef(null);
   const ownerIdRef = useRef(null);
   const matchPollRef = useRef(null);
+  const finalizeMatchTimeoutRef = useRef(null);
   const [matchingError, setMatchingError] = React.useState('');
   const [walkerLivePos, setWalkerLivePos] = React.useState(null);
   const liveLineRef = useRef(null);
@@ -583,6 +590,7 @@ export default function BookingFlow() {
   // promeneur-là.
   const startRealWalkSearch = async (forcedWalker = null) => {
     if (matchPollRef.current) { clearInterval(matchPollRef.current); matchPollRef.current = null; }
+    if (finalizeMatchTimeoutRef.current) { clearTimeout(finalizeMatchTimeoutRef.current); finalizeMatchTimeoutRef.current = null; }
     setMatchingError('');
     setManualPickRefused(false);
     setSearching(true);
@@ -669,20 +677,30 @@ export default function BookingFlow() {
       if (row?.status === 'accepted') {
         clearInterval(matchPollRef.current);
         matchPollRef.current = null;
-        const name = chosen.first_name
-          ? `${chosen.first_name}${chosen.last_name ? ' ' + chosen.last_name.charAt(0) + '.' : ''}`
-          : 'Promeneur';
-        setWalker({ name, rating: chosen.rating || 5, walks: chosen.total_walks || 0, emoji: '🧑' });
-        setWalkerPhase('incoming');
-        // ETA approximative à partir de la vraie distance (marche à ~5 km/h),
-        // sinon estimation par défaut si la position n'est pas connue.
-        setEtaSeconds(chosen.distanceKm != null ? Math.max(60, Math.round(chosen.distanceKm / 5 * 3600)) : 480);
-        setMatched(true);
-        setSearching(false);
-        // La suite (suivi en direct, discussion, confirmation) se passe
-        // désormais dans le tableau de bord — un seul écran de suivi, pas
-        // deux versions différentes à maintenir en parallèle.
-        navigate('/dashboard#live');
+        const finalizeMatch = () => {
+          const name = chosen.first_name
+            ? `${chosen.first_name}${chosen.last_name ? ' ' + chosen.last_name.charAt(0) + '.' : ''}`
+            : 'Promeneur';
+          setWalker({ name, rating: chosen.rating || 5, walks: chosen.total_walks || 0, emoji: '🧑' });
+          setWalkerPhase('incoming');
+          // ETA approximative à partir de la vraie distance (marche à ~5 km/h),
+          // sinon estimation par défaut si la position n'est pas connue.
+          setEtaSeconds(chosen.distanceKm != null ? Math.max(60, Math.round(chosen.distanceKm / 5 * 3600)) : 480);
+          setMatched(true);
+          setSearching(false);
+          // La suite (suivi en direct, discussion, confirmation) se passe
+          // désormais dans le tableau de bord — un seul écran de suivi, pas
+          // deux versions différentes à maintenir en parallèle.
+          navigate('/dashboard#live');
+        };
+        // On garde l'écran "Recherche en cours" au moins MIN_SEARCH_DISPLAY_MS,
+        // même si le promeneur a accepté quasi instantanément.
+        const remaining = MIN_SEARCH_DISPLAY_MS - (Date.now() - startedAt);
+        if (remaining > 0) {
+          finalizeMatchTimeoutRef.current = setTimeout(finalizeMatch, remaining);
+        } else {
+          finalizeMatch();
+        }
       } else if (row?.status === 'refused') {
         clearInterval(matchPollRef.current);
         matchPollRef.current = null;
@@ -756,6 +774,7 @@ export default function BookingFlow() {
   // elle a déjà été créée, puis on revient au tableau de bord.
   const cancelSearch = async () => {
     if (matchPollRef.current) { clearInterval(matchPollRef.current); matchPollRef.current = null; }
+    if (finalizeMatchTimeoutRef.current) { clearTimeout(finalizeMatchTimeoutRef.current); finalizeMatchTimeoutRef.current = null; }
     if (flowType === 'walk' && matchBookingIdRef.current) {
       await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', matchBookingIdRef.current);
     }

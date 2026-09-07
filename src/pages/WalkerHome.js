@@ -8,6 +8,15 @@ const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 // qu'elle ne soit automatiquement refusée (et proposée à un autre promeneur).
 const MISSION_TIMER_SECONDS = 60;
 
+// Jours (au format JS Date.getDay() : 0 = dimanche ... 6 = samedi) et
+// créneaux horaires proposés pour déclarer ses disponibilités — mêmes heures
+// que celles proposées au propriétaire lors d'une réservation planifiée.
+const AVAIL_DAYS = [
+  { id: 1, label: 'Lundi' }, { id: 2, label: 'Mardi' }, { id: 3, label: 'Mercredi' },
+  { id: 4, label: 'Jeudi' }, { id: 5, label: 'Vendredi' }, { id: 6, label: 'Samedi' }, { id: 0, label: 'Dimanche' },
+];
+const AVAIL_SLOTS = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
+
 export default function WalkerHome() {
  const navigate = useNavigate();
  const [tab, setTab] = useState('home');
@@ -54,6 +63,26 @@ export default function WalkerHome() {
  // qu'une liste sans fin de toutes les missions jamais faites.
  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
  const [calSelectedDate, setCalSelectedDate] = useState(null);
+
+ // Mes disponibilités (Balade / Garde à domicile), déclarées par jour de la
+ // semaine — servent à recevoir de vraies demandes planifiées plutôt que des
+ // demandes envoyées au hasard.
+ const [availService, setAvailService] = useState('walk');
+ const [availSelectedDay, setAvailSelectedDay] = useState(1);
+ const [availability, setAvailability] = useState({ walk: {}, home: {} });
+ const [availLoading, setAvailLoading] = useState(false);
+ const [availSaving, setAvailSaving] = useState(false);
+ const [availSuccess, setAvailSuccess] = useState(false);
+
+ // Demandes de balades planifiées reçues (en attente, ou déjà confirmées en
+ // avance) — distinctes des missions immédiates : pas d'alerte 60s, on peut
+ // les consulter et en discuter tranquillement avant de répondre.
+ const [scheduledRequests, setScheduledRequests] = useState([]);
+ const [confirmedScheduled, setConfirmedScheduled] = useState([]);
+ const [scheduledActionLoading, setScheduledActionLoading] = useState(null);
+ const [reqChatBooking, setReqChatBooking] = useState(null);
+ const [reqChatMessages, setReqChatMessages] = useState([]);
+ const [reqChatInput, setReqChatInput] = useState('');
  const chatEndRef = useRef(null);
  const mapRef = useRef(null);
  const mapInstanceRef = useRef(null);
@@ -154,6 +183,61 @@ export default function WalkerHome() {
    reader.readAsDataURL(file);
  };
 
+ // Charge mes disponibilités déclarées (Balade + Garde à domicile), une
+ // ligne par jour et par service en base, regroupées ici par service.
+ useEffect(() => {
+   if (tab !== 'availability' || !walkerId) return;
+   const loadAvailability = async () => {
+     setAvailLoading(true);
+     const { data } = await supabase.from('walker_availability').select('*').eq('walker_id', walkerId);
+     const grouped = { walk: {}, home: {} };
+     (data || []).forEach(row => {
+       grouped[row.service] = grouped[row.service] || {};
+       grouped[row.service][row.day_of_week] = Array.isArray(row.slots) ? row.slots : [];
+     });
+     setAvailability(grouped);
+     setAvailLoading(false);
+   };
+   loadAvailability();
+ }, [tab, walkerId]);
+
+ const toggleAvailSlot = (time) => {
+   setAvailSuccess(false);
+   setAvailability(prev => {
+     const dayList = prev[availService]?.[availSelectedDay] || [];
+     const newList = dayList.includes(time) ? dayList.filter(t => t !== time) : [...dayList, time];
+     return { ...prev, [availService]: { ...(prev[availService] || {}), [availSelectedDay]: newList } };
+   });
+ };
+
+ // Enregistre les 14 lignes (7 jours × 2 services) d'un coup — plus simple
+ // à raisonner qu'une sauvegarde créneau par créneau.
+ const saveAvailability = async () => {
+   if (!walkerId) return;
+   setAvailSaving(true);
+   try {
+     const rows = [];
+     ['walk', 'home'].forEach(service => {
+       AVAIL_DAYS.forEach(d => {
+         rows.push({
+           walker_id: walkerId,
+           service,
+           day_of_week: d.id,
+           slots: availability[service]?.[d.id] || [],
+           updated_at: new Date().toISOString(),
+         });
+       });
+     });
+     const { error } = await supabase.from('walker_availability').upsert(rows, { onConflict: 'walker_id,service,day_of_week' });
+     if (!error) {
+       setAvailSuccess(true);
+       setTimeout(() => setAvailSuccess(false), 3000);
+     }
+   } finally {
+     setAvailSaving(false);
+   }
+ };
+
  // Vrai changement de mot de passe — même logique que côté propriétaire :
  // Supabase n'a pas de fonction pour "juste vérifier" un mot de passe, donc
  // on tente une reconnexion avec l'ancien avant d'appliquer le nouveau.
@@ -247,6 +331,9 @@ export default function WalkerHome() {
        .select('*')
        .eq('walker_id', walkerId)
        .eq('status', 'pending')
+       // Les demandes planifiées à l'avance ont leur propre écran, sans
+       // alerte 60s — voir "Demandes planifiées" plus bas.
+       .eq('is_scheduled', false)
        .order('created_at', { ascending: true })
        .limit(1);
      if (cancelled || !data || data.length === 0) return;
@@ -273,6 +360,99 @@ export default function WalkerHome() {
    const interval = setInterval(checkForMission, 4000);
    return () => { cancelled = true; clearInterval(interval); };
  }, [available, phase, walkerId]);
+
+ // Demandes de balades planifiées à l'avance : indépendant du bouton
+ // "disponible" (ce n'est pas "maintenant") — on regarde à la fois celles en
+ // attente de réponse et celles déjà confirmées (pour proposer de les
+ // démarrer une fois le jour arrivé).
+ useEffect(() => {
+   if (!walkerId) return;
+   let cancelled = false;
+   const loadScheduled = async () => {
+     const { data: pending } = await supabase
+       .from('bookings').select('*')
+       .eq('walker_id', walkerId).eq('status', 'pending').eq('is_scheduled', true)
+       .order('scheduled_date', { ascending: true });
+     if (!cancelled) setScheduledRequests(pending || []);
+     const { data: confirmed } = await supabase
+       .from('bookings').select('*')
+       .eq('walker_id', walkerId).eq('status', 'accepted').eq('is_scheduled', true)
+       .order('scheduled_date', { ascending: true });
+     // On exclut la mission qu'on vient de démarrer (bouton "Démarrer") :
+     // en base elle reste "accepted" jusqu'à la remise du chien, sinon elle
+     // réapparaîtrait ici en double à côté de son suivi en direct.
+     if (!cancelled) setConfirmedScheduled((confirmed || []).filter(b => b.id !== mission?.bookingId));
+   };
+   loadScheduled();
+   const interval = setInterval(loadScheduled, 6000);
+   return () => { cancelled = true; clearInterval(interval); };
+ }, [walkerId, mission?.bookingId]);
+
+ // Discussion avant décision, pour une demande planifiée pas encore
+ // acceptée/refusée — même table que la discussion de mission, fil séparé.
+ const loadReqChat = useCallback(async (bookingId) => {
+   const { data } = await supabase
+     .from('booking_messages').select('*').eq('booking_id', bookingId)
+     .order('created_at', { ascending: true });
+   setReqChatMessages(data || []);
+ }, []);
+
+ useEffect(() => {
+   if (!reqChatBooking?.id) return;
+   loadReqChat(reqChatBooking.id);
+   const interval = setInterval(() => loadReqChat(reqChatBooking.id), 4000);
+   return () => clearInterval(interval);
+ }, [reqChatBooking?.id, loadReqChat]);
+
+ const sendReqMessage = async () => {
+   const text = reqChatInput.trim();
+   if (!text || !reqChatBooking?.id || !walkerId) return;
+   setReqChatInput('');
+   await supabase.from('booking_messages').insert({
+     booking_id: reqChatBooking.id, sender_id: walkerId, kind: 'text', text,
+   });
+   loadReqChat(reqChatBooking.id);
+ };
+
+ const respondScheduledRequest = async (booking, decision) => {
+   setScheduledActionLoading(booking.id);
+   try {
+     const updates = decision === 'accepted'
+       ? { status: 'accepted', walker_name: displayName, walker_rating: avgRating ? Number(avgRating) : null, walker_total_walks: totalWalks }
+       : { status: 'refused' };
+     await supabase.from('bookings').update(updates).eq('id', booking.id);
+     setScheduledRequests(prev => prev.filter(b => b.id !== booking.id));
+     if (decision === 'accepted') setConfirmedScheduled(prev => [...prev, { ...booking, status: 'accepted' }]);
+     if (reqChatBooking?.id === booking.id) setReqChatBooking(null);
+   } finally {
+     setScheduledActionLoading(null);
+   }
+ };
+
+ // Le jour J est arrivé : on démarre vraiment la mission — exactement comme
+ // pour une mission immédiate acceptée (position partagée, suivi en direct).
+ const startScheduledMission = (booking) => {
+   setMission({
+     bookingId: booking.id,
+     owner: booking.owner_name || 'Propriétaire',
+     ownerPhoto: booking.owner_photo_url,
+     dog: booking.dog_name || 'Chien',
+     dogBreed: booking.dog_breed || '',
+     dogSize: booking.dog_size || 'm',
+     dogPhoto: booking.dog_photo_url,
+     service: booking.service,
+     duration: booking.duration,
+     price: Number(booking.price),
+     address: booking.address || 'Adresse communiquée après acceptation',
+     distance: booking.distance_km != null ? `${booking.distance_km} km` : 'proximité inconnue',
+     instructions: booking.instructions,
+   });
+   if (walkerId) supabase.from('walker_profiles').update({ available: false }).eq('id', walkerId);
+   setAvailable(false);
+   setPhase('navigating');
+   setTab('mission');
+   setConfirmedScheduled(prev => prev.filter(b => b.id !== booking.id));
+ };
 
  // Surveiller la réservation en cours : passer à la balade une fois que
  // le propriétaire confirme la remise du chien, et — surtout — détecter
@@ -1031,6 +1211,20 @@ export default function WalkerHome() {
              </div>
            )}
 
+           {(scheduledRequests.length > 0 || confirmedScheduled.length > 0) && (
+             <div onClick={() => setTab('requests')}
+               style={{ background: '#FFF8E1', borderRadius: 16, padding: '16px', marginBottom: 16, border: '1.5px solid #F59E0B', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
+               <div style={{ fontSize: 24 }}>📅</div>
+               <div style={{ flex: 1 }}>
+                 <div style={{ fontSize: 14, fontWeight: 700, color: '#D97706' }}>
+                   {scheduledRequests.length > 0 ? `${scheduledRequests.length} demande${scheduledRequests.length > 1 ? 's' : ''} planifiée${scheduledRequests.length > 1 ? 's' : ''} à traiter` : 'Missions planifiées à venir'}
+                 </div>
+                 <div style={{ fontSize: 12, color: '#888' }}>{confirmedScheduled.length > 0 ? `${confirmedScheduled.length} déjà confirmée${confirmedScheduled.length > 1 ? 's' : ''}` : 'Voir le détail'}</div>
+               </div>
+               <div style={{ fontSize: 13, color: '#D97706', fontWeight: 700 }}>Voir →</div>
+             </div>
+           )}
+
            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A', marginBottom: 12 }}>Dernières missions</h3>
            {history.length === 0 ? (
              <div style={{ textAlign: 'center', padding: '32px 20px', background: '#fff', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
@@ -1408,7 +1602,7 @@ export default function WalkerHome() {
 
            <div style={{ background: '#fff', borderRadius: 16, padding: '4px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
              {[
-               { icon: '📋', label: 'Mes disponibilités' },
+               { icon: '📋', label: 'Mes disponibilités', onClick: () => setTab('availability') },
                { icon: '🏦', label: 'Informations bancaires' },
                { icon: '📱', label: 'Notifications' },
                { icon: '🔒', label: 'Sécurité & mot de passe', onClick: () => setTab('security') },
@@ -1491,7 +1685,147 @@ export default function WalkerHome() {
          </div>
        )}
 
+       {/* MES DISPONIBILITÉS */}
+       {tab === 'availability' && (
+         <div style={{ animation: 'slidein 0.3s ease' }}>
+           <div onClick={() => setTab('profile')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
+             ← Retour au profil
+           </div>
+
+           <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Déclarez vos créneaux disponibles pour recevoir de vraies demandes planifiées à l'avance — séparément pour la Balade et la Garde à domicile.</p>
+
+           <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 16 }}>
+             {[{ id: 'walk', label: '🐕 Balade' }, { id: 'home', label: '🏠 Garde à domicile' }].map(s => (
+               <button key={s.id} onClick={() => setAvailService(s.id)} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: availService === s.id ? '#fff' : 'transparent', color: availService === s.id ? '#1D9E75' : '#888', boxShadow: availService === s.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', fontFamily: 'inherit' }}>{s.label}</button>
+             ))}
+           </div>
+
+           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 16 }}>
+             {AVAIL_DAYS.map(d => {
+               const count = (availability[availService]?.[d.id] || []).length;
+               return (
+                 <div key={d.id} onClick={() => setAvailSelectedDay(d.id)} style={{ flexShrink: 0, padding: '10px 14px', borderRadius: 12, border: availSelectedDay === d.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: availSelectedDay === d.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', textAlign: 'center' }}>
+                   <div style={{ fontSize: 12, fontWeight: availSelectedDay === d.id ? 700 : 400, color: availSelectedDay === d.id ? '#0F6E56' : '#555' }}>{d.label.slice(0, 3)}</div>
+                   <div style={{ fontSize: 10, color: count > 0 ? '#1D9E75' : '#CCC', marginTop: 2 }}>{count > 0 ? `${count} h` : '—'}</div>
+                 </div>
+               );
+             })}
+           </div>
+
+           {availLoading ? (
+             <div style={{ textAlign: 'center', padding: 30, color: '#888', fontSize: 14 }}>Chargement...</div>
+           ) : (
+             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 20 }}>
+               {AVAIL_SLOTS.map(t => {
+                 const active = (availability[availService]?.[availSelectedDay] || []).includes(t);
+                 return (
+                   <div key={t} onClick={() => toggleAvailSlot(t)} style={{ padding: '10px 4px', textAlign: 'center', borderRadius: 10, border: active ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: active ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 13, fontWeight: active ? 700 : 400, color: active ? '#0F6E56' : '#555' }}>{t}</div>
+                 );
+               })}
+             </div>
+           )}
+
+           {availSuccess && (
+             <div style={{ background: '#E1F5EE', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
+               ✅ Disponibilités enregistrées !
+             </div>
+           )}
+           <button onClick={saveAvailability} disabled={availSaving} style={{ width: '100%', padding: 14, background: availSaving ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: availSaving ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: availSaving ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+             {availSaving ? 'Enregistrement...' : '💾 Enregistrer mes disponibilités'}
+           </button>
+         </div>
+       )}
+
+       {/* DEMANDES PLANIFIÉES */}
+       {tab === 'requests' && (
+         <div style={{ animation: 'slidein 0.3s ease' }}>
+           <div onClick={() => setTab('home')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
+             ← Retour à l'accueil
+           </div>
+
+           {scheduledRequests.length > 0 && (
+             <>
+               <h3 style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 10 }}>À traiter</h3>
+               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 22 }}>
+                 {scheduledRequests.map(b => {
+                   const dateLabel = b.scheduled_date ? new Date(`${b.scheduled_date}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
+                   return (
+                     <div key={b.id} style={{ background: '#fff', borderRadius: 16, padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                       <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>📅 {dateLabel} à {b.scheduled_time}</div>
+                       <div style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>{b.service} · {b.duration} min · {b.dog_name || 'Chien'} · {b.owner_name || 'Propriétaire'}</div>
+                       {b.instructions && <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>📝 {b.instructions}</div>}
+                       <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75', marginBottom: 10 }}>{b.price}€</div>
+                       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                         <button onClick={() => respondScheduledRequest(b, 'accepted')} disabled={scheduledActionLoading === b.id}
+                           style={{ flex: 1, padding: '11px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>✅ Accepter</button>
+                         <button onClick={() => respondScheduledRequest(b, 'refused')} disabled={scheduledActionLoading === b.id}
+                           style={{ flex: 1, padding: '11px', background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>❌ Refuser</button>
+                       </div>
+                       <button onClick={() => setReqChatBooking({ id: b.id, owner: b.owner_name })} style={{ width: '100%', padding: '9px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>💬 Discuter avant de répondre</button>
+                     </div>
+                   );
+                 })}
+               </div>
+             </>
+           )}
+
+           {confirmedScheduled.length > 0 && (
+             <>
+               <h3 style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 10 }}>Confirmées</h3>
+               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                 {confirmedScheduled.map(b => {
+                   const dateLabel = b.scheduled_date ? new Date(`${b.scheduled_date}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
+                   const todayStr = new Date().toISOString().split('T')[0];
+                   const isDue = b.scheduled_date && b.scheduled_date <= todayStr;
+                   return (
+                     <div key={b.id} style={{ background: '#fff', borderRadius: 16, padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                       <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>✅ {dateLabel} à {b.scheduled_time}</div>
+                       <div style={{ fontSize: 13, color: '#888', marginBottom: 10 }}>{b.service} · {b.duration} min · {b.dog_name || 'Chien'} · {b.owner_name || 'Propriétaire'}</div>
+                       <div style={{ display: 'flex', gap: 8 }}>
+                         <button onClick={() => setReqChatBooking({ id: b.id, owner: b.owner_name })} style={{ flex: 1, padding: '10px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>💬 Discuter</button>
+                         <button onClick={() => isDue && startScheduledMission(b)} disabled={!isDue} style={{ flex: 1, padding: '10px', background: isDue ? 'linear-gradient(135deg, #1D9E75, #0F6E56)' : '#F0F0F0', color: isDue ? '#fff' : '#AAA', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: isDue ? 'pointer' : 'default' }}>{isDue ? '▶️ Démarrer' : 'Le jour J'}</button>
+                       </div>
+                     </div>
+                   );
+                 })}
+               </div>
+             </>
+           )}
+
+           {scheduledRequests.length === 0 && confirmedScheduled.length === 0 && (
+             <div style={{ textAlign: 'center', padding: '40px 20px', background: '#fff', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+               <div style={{ fontSize: 40, marginBottom: 10 }}>📅</div>
+               <p style={{ fontSize: 14, color: '#888' }}>Aucune demande planifiée pour le moment.</p>
+             </div>
+           )}
+         </div>
+       )}
+
      </div>
+
+     {/* DISCUSSION SUR UNE DEMANDE PLANIFIÉE (avant ou après décision) */}
+     {reqChatBooking && (
+       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 200 }} onClick={() => setReqChatBooking(null)}>
+         <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 430, height: '70vh', display: 'flex', flexDirection: 'column' }}>
+           <div style={{ padding: '16px', borderBottom: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+             <span style={{ fontSize: 15, fontWeight: 700 }}>💬 {reqChatBooking.owner || 'Propriétaire'}</span>
+             <button onClick={() => setReqChatBooking(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>✕</button>
+           </div>
+           <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+             {reqChatMessages.length === 0 && <div style={{ textAlign: 'center', color: '#AAA', fontSize: 13, marginTop: 20 }}>Posez vos questions avant d'accepter ou de refuser.</div>}
+             {reqChatMessages.map(m => (
+               <div key={m.id} style={{ alignSelf: m.sender_id === walkerId ? 'flex-end' : 'flex-start', background: m.sender_id === walkerId ? '#1D9E75' : '#F0F0F0', color: m.sender_id === walkerId ? '#fff' : '#1A1A1A', borderRadius: 14, padding: '8px 14px', maxWidth: '75%', fontSize: 14 }}>
+                 {m.text}
+               </div>
+             ))}
+           </div>
+           <div style={{ padding: '12px 16px', borderTop: '1px solid #F0F0F0', display: 'flex', gap: 8 }}>
+             <input value={reqChatInput} onChange={e => setReqChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendReqMessage()} placeholder="Votre message..." style={{ flex: 1, padding: '10px 14px', borderRadius: 20, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+             <button onClick={sendReqMessage} style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer' }}>➤</button>
+           </div>
+         </div>
+       </div>
+     )}
 
      {/* BOTTOM NAV */}
      <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 430, background: '#fff', borderTop: '1px solid #F0F0F0', display: 'flex', padding: '8px 0 16px' }}>

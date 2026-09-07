@@ -134,6 +134,17 @@ export default function BookingFlow() {
   const [showChat, setShowChat] = React.useState(false);
   const [showWalkerDetail, setShowWalkerDetail] = React.useState(null);
 
+  // Choix manuel du promeneur (Balade) : le propriétaire peut soit laisser
+  // Dogger choisir automatiquement le promeneur le plus proche (comportement
+  // historique), soit parcourir la liste des promeneurs dispo et en choisir
+  // un lui-même.
+  const [showWalkerPicker, setShowWalkerPicker] = React.useState(false);
+  const [pickerWalkers, setPickerWalkers] = React.useState([]);
+  const [pickerLoading, setPickerLoading] = React.useState(false);
+  const [pickerError, setPickerError] = React.useState('');
+  const [manualPickRefused, setManualPickRefused] = React.useState(false);
+  const isManualPickRef = useRef(false);
+
   const mapRef = useRef(null);
   const walkerMapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -567,38 +578,46 @@ export default function BookingFlow() {
   // Vraie mise en relation pour la Balade : cherche un promeneur réellement
   // disponible, crée la réservation, et attend sa réponse. Si le promeneur
   // refuse (ou ne répond pas), retente automatiquement avec un autre.
-  const startRealWalkSearch = async () => {
+  // `forcedWalker`, quand fourni (choix manuel via le picker), court-circuite
+  // la sélection automatique et envoie la demande directement à ce
+  // promeneur-là.
+  const startRealWalkSearch = async (forcedWalker = null) => {
     if (matchPollRef.current) { clearInterval(matchPollRef.current); matchPollRef.current = null; }
     setMatchingError('');
+    setManualPickRefused(false);
     setSearching(true);
+    isManualPickRef.current = !!forcedWalker;
 
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setSearching(false); navigate('/login'); return; }
 
-    const { data: candidates } = await supabase.rpc('get_available_walkers');
-    let pool = (candidates || []).filter(c => !matchTriedRef.current.includes(c.id));
+    let chosen = forcedWalker;
+    if (!chosen) {
+      const { data: candidates } = await supabase.rpc('get_available_walkers');
+      let pool = (candidates || []).filter(c => !matchTriedRef.current.includes(c.id));
 
-    if (!pool.length) {
-      setSearching(false);
-      setMatchingError('Aucun promeneur disponible pour le moment. Réessayez dans quelques minutes.');
-      return;
+      if (!pool.length) {
+        setSearching(false);
+        setMatchingError('Aucun promeneur disponible pour le moment. Réessayez dans quelques minutes.');
+        return;
+      }
+
+      // Distance réelle si on connaît la position du promeneur et la vôtre —
+      // sinon on retombe sur le classement par note.
+      pool = pool.map(c => ({
+        ...c,
+        distanceKm: (userCoords && c.lat != null && c.lng != null)
+          ? distanceKm(userCoords.lat, userCoords.lng, c.lat, c.lng)
+          : null,
+      }));
+      pool.sort((a, b) => {
+        if (a.distanceKm != null && b.distanceKm != null) return a.distanceKm - b.distanceKm;
+        if (a.distanceKm != null) return -1;
+        if (b.distanceKm != null) return 1;
+        return (b.rating || 0) - (a.rating || 0);
+      });
+      chosen = pool[0];
     }
-
-    // Distance réelle si on connaît la position du promeneur et la vôtre —
-    // sinon on retombe sur le classement par note.
-    pool = pool.map(c => ({
-      ...c,
-      distanceKm: (userCoords && c.lat != null && c.lng != null)
-        ? distanceKm(userCoords.lat, userCoords.lng, c.lat, c.lng)
-        : null,
-    }));
-    pool.sort((a, b) => {
-      if (a.distanceKm != null && b.distanceKm != null) return a.distanceKm - b.distanceKm;
-      if (a.distanceKm != null) return -1;
-      if (b.distanceKm != null) return 1;
-      return (b.rating || 0) - (a.rating || 0);
-    });
-    const chosen = pool[0];
     matchTriedRef.current = [...matchTriedRef.current, chosen.id];
 
     const svc = WALK_SERVICES.find(s => s.id === walkService);
@@ -667,7 +686,16 @@ export default function BookingFlow() {
       } else if (row?.status === 'refused') {
         clearInterval(matchPollRef.current);
         matchPollRef.current = null;
-        startRealWalkSearch();
+        if (isManualPickRef.current) {
+          // Choix manuel refusé : on ne relance pas automatiquement avec
+          // quelqu'un d'autre à la place du propriétaire — on le laisse
+          // décider (reprendre la liste, ou passer en automatique).
+          setSearching(false);
+          setManualPickRefused(true);
+          setMatchingError(`${chosen.first_name || 'Ce promeneur'} a refusé la demande.`);
+        } else {
+          startRealWalkSearch();
+        }
       } else if (Date.now() - startedAt > WALKER_RESPONSE_TIMEOUT_MS) {
         clearInterval(matchPollRef.current);
         matchPollRef.current = null;
@@ -676,9 +704,51 @@ export default function BookingFlow() {
         // déjà laissé tomber la recherche.
         await supabase.from('bookings').update({ status: 'refused' }).eq('id', bookingId);
         setSearching(false);
-        setMatchingError("Personne n'a répondu à temps. Réessayez.");
+        if (isManualPickRef.current) {
+          setManualPickRefused(true);
+          setMatchingError(`${chosen.first_name || 'Ce promeneur'} n'a pas répondu à temps.`);
+        } else {
+          setMatchingError("Personne n'a répondu à temps. Réessayez.");
+        }
       }
     }, 3000);
+  };
+
+  // Ouvre la liste des promeneurs dispo pour que le propriétaire choisisse
+  // lui-même (au lieu de l'automatch). On exclut ceux déjà essayés/refusés
+  // pour cette demande.
+  const openWalkerPicker = async () => {
+    setMatchingError('');
+    setManualPickRefused(false);
+    setPickerError('');
+    setPickerLoading(true);
+    setShowWalkerPicker(true);
+    const { data: candidates, error: rpcError } = await supabase.rpc('get_available_walkers');
+    if (rpcError) {
+      setPickerError('Impossible de charger les promeneurs disponibles.');
+      setPickerLoading(false);
+      return;
+    }
+    let pool = (candidates || []).filter(c => !matchTriedRef.current.includes(c.id));
+    pool = pool.map(c => ({
+      ...c,
+      distanceKm: (userCoords && c.lat != null && c.lng != null)
+        ? distanceKm(userCoords.lat, userCoords.lng, c.lat, c.lng)
+        : null,
+    }));
+    pool.sort((a, b) => {
+      if (a.distanceKm != null && b.distanceKm != null) return a.distanceKm - b.distanceKm;
+      if (a.distanceKm != null) return -1;
+      if (b.distanceKm != null) return 1;
+      return (b.rating || 0) - (a.rating || 0);
+    });
+    setPickerWalkers(pool);
+    setPickerLoading(false);
+  };
+
+  const chooseWalkerManually = (w) => {
+    setShowWalkerPicker(false);
+    startRealWalkSearch(w);
   };
 
   // Annulation pendant la recherche elle-même (avant qu'un promeneur ait
@@ -728,8 +798,65 @@ export default function BookingFlow() {
       <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
         <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>{matchingError}</h3>
-        <button onClick={() => startRealWalkSearch()} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginTop: 20, marginBottom: 10 }}>🔄 Réessayer</button>
+        {manualPickRefused ? (
+          <>
+            <button onClick={openWalkerPicker} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginTop: 20, marginBottom: 10 }}>🎯 Choisir un autre promeneur</button>
+            <button onClick={() => startRealWalkSearch()} style={{ width: '100%', padding: 13, background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>⚡ Trouver automatiquement</button>
+          </>
+        ) : (
+          <button onClick={() => startRealWalkSearch()} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginTop: 20, marginBottom: 10 }}>🔄 Réessayer</button>
+        )}
         <button onClick={goToDashboard} style={{ width: '100%', padding: 13, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Annuler</button>
+      </div>
+    );
+  }
+
+  // ── CHOIX MANUEL DU PROMENEUR (BALADE) ──────────────────────────────────────
+  if (showWalkerPicker && flowType === 'walk') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto' }}>
+        <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 24px 28px' }}>
+          <button onClick={() => setShowWalkerPicker(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer', marginBottom: 20 }}>← Retour</button>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>🎯</div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Choisissez votre promeneur</h1>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>{pickerLoading ? 'Chargement...' : `${pickerWalkers.length} promeneur${pickerWalkers.length > 1 ? 's' : ''} disponible${pickerWalkers.length > 1 ? 's' : ''}`}</p>
+        </div>
+        <div style={{ padding: '20px' }}>
+          {pickerLoading && (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#888', fontSize: 14 }}>Recherche des promeneurs disponibles...</div>
+          )}
+          {!pickerLoading && pickerError && (
+            <div style={{ textAlign: 'center', padding: '20px' }}>
+              <p style={{ fontSize: 14, color: '#E24B4A', marginBottom: 16 }}>{pickerError}</p>
+              <button onClick={openWalkerPicker} style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Réessayer</button>
+            </div>
+          )}
+          {!pickerLoading && !pickerError && pickerWalkers.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>😕</div>
+              <p style={{ fontSize: 14, color: '#888', marginBottom: 20 }}>Aucun promeneur disponible pour le moment.</p>
+              <button onClick={() => setShowWalkerPicker(false)} style={{ padding: '12px 24px', background: 'transparent', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Retour</button>
+            </div>
+          )}
+          {!pickerLoading && !pickerError && pickerWalkers.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {pickerWalkers.map(w => {
+                const name = `${w.first_name || ''}${w.last_name ? ' ' + w.last_name.charAt(0) + '.' : ''}`.trim() || 'Promeneur';
+                return (
+                  <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px', borderRadius: 16, border: '1.5px solid #E8E8E8', background: '#FAFAFA' }}>
+                    {w.photo_url ? <img src={w.photo_url} alt={name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>🧑</div>}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>{name}</div>
+                      <div style={{ fontSize: 12, color: '#888' }}>⭐ {w.rating ? Number(w.rating).toFixed(1) : '—'} · {w.total_walks || 0} balade{(w.total_walks || 0) > 1 ? 's' : ''}{w.distanceKm != null ? ` · ${w.distanceKm < 1 ? Math.round(w.distanceKm * 1000) + ' m' : Math.round(w.distanceKm * 10) / 10 + ' km'}` : ''}</div>
+                      {w.bio && <div style={{ fontSize: 11, color: '#AAA', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{w.bio}</div>}
+                    </div>
+                    <button onClick={() => chooseWalkerManually(w)} style={{ padding: '10px 16px', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>Demander</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -1254,15 +1381,25 @@ export default function BookingFlow() {
             </div>
           )}
           {error && <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>⚠️ {error}</div>}
-          <button onClick={() => {
-            setError('');
-            if (walkStep === 1 && !walkAddress) { setError('Entrez votre adresse'); return; }
-            if (walkStep === 2 && selectedDogs.length === 0) { setError('Sélectionnez au moins un chien'); return; }
-            if (walkStep < 4) setWalkStep(walkStep + 1);
-            else confirmSearch();
-          }} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>
-            {walkStep === 1 ? 'Choisir mes chiens →' : walkStep === 2 ? 'Choisir un service →' : walkStep === 3 ? 'Voir le récapitulatif →' : '⚡ Trouver un promeneur maintenant'}
-          </button>
+          {walkStep === 4 ? (
+            <>
+              <button onClick={confirmSearch} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)', marginBottom: 10 }}>
+                ⚡ Trouver automatiquement
+              </button>
+              <button onClick={openWalkerPicker} style={{ width: '100%', padding: 15, background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                🎯 Choisir mon promeneur
+              </button>
+            </>
+          ) : (
+            <button onClick={() => {
+              setError('');
+              if (walkStep === 1 && !walkAddress) { setError('Entrez votre adresse'); return; }
+              if (walkStep === 2 && selectedDogs.length === 0) { setError('Sélectionnez au moins un chien'); return; }
+              setWalkStep(walkStep + 1);
+            }} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(29,158,117,0.35)' }}>
+              {walkStep === 1 ? 'Choisir mes chiens →' : walkStep === 2 ? 'Choisir un service →' : 'Voir le récapitulatif →'}
+            </button>
+          )}
         </div>
       </div>
     );

@@ -44,7 +44,12 @@ const MOCK_WALKERS = [
   { id: 5, name: 'Marc D.',   rating: 4.6, walks: 45,  lat: 48.8586, lng: 2.3492, price: 10, bio: 'Retraité passionné, beaucoup de disponibilité', specialties: ['Petits gabarits'], photo: '👴', available: true, dist: '750m', eta: '15 min' },
 ];
 
-const TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
+// Étendu à 6h-23h (au lieu de 8h-19h) pour correspondre aux disponibilités
+// que les promeneurs peuvent maintenant déclarer sur la même plage horaire.
+const TIMES = [
+  '06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00',
+  '15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00',
+];
 const DEPOSIT_TIMES = ['08:00','09:00','10:00','11:00','12:00','13:00'];
 const PICKUP_TIMES  = ['14:00','15:00','16:00','17:00','18:00','19:00'];
 
@@ -740,19 +745,14 @@ export default function BookingFlow() {
     }, 3000);
   };
 
-  // Jour de la semaine (0 = dimanche ... 6 = samedi) correspondant à la date
-  // choisie pour une Balade planifiée — sert à interroger les disponibilités
-  // déclarées par les promeneurs pour ce jour-là.
-  const scheduledDayOfWeek = () => walkDate ? new Date(`${walkDate}T00:00:00`).getDay() : null;
-
-  // Vrais promeneurs disponibles à un jour/heure précis (Balade planifiée),
-  // d'après leurs disponibilités déclarées — pas "en ligne maintenant" comme
-  // pour le mode immédiat, puisque le rendez-vous est dans le futur.
+  // Vrais promeneurs disponibles à une date/heure précise (Balade planifiée),
+  // d'après les disponibilités qu'ils ont déclarées jour par jour sur leur
+  // propre calendrier — pas "en ligne maintenant" comme pour le mode
+  // immédiat, puisque le rendez-vous est dans le futur.
   const fetchScheduledCandidates = async () => {
-    const dow = scheduledDayOfWeek();
-    if (dow == null || !walkTime) return [];
+    if (!walkDate || !walkTime) return [];
     const { data } = await supabase.rpc('get_walkers_available_for_slot', {
-      p_service: 'walk', p_day_of_week: dow, p_time: walkTime,
+      p_service: 'walk', p_date: walkDate, p_time: walkTime,
     });
     let pool = data || [];
     pool = pool.map(c => ({

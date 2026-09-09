@@ -8,14 +8,14 @@ const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 // qu'elle ne soit automatiquement refusée (et proposée à un autre promeneur).
 const MISSION_TIMER_SECONDS = 60;
 
-// Jours (au format JS Date.getDay() : 0 = dimanche ... 6 = samedi) et
-// créneaux horaires proposés pour déclarer ses disponibilités — mêmes heures
-// que celles proposées au propriétaire lors d'une réservation planifiée.
-const AVAIL_DAYS = [
-  { id: 1, label: 'Lundi' }, { id: 2, label: 'Mardi' }, { id: 3, label: 'Mercredi' },
-  { id: 4, label: 'Jeudi' }, { id: 5, label: 'Vendredi' }, { id: 6, label: 'Samedi' }, { id: 0, label: 'Dimanche' },
+// Créneaux horaires proposés pour déclarer ses disponibilités, jour par
+// jour sur un vrai calendrier (pas un modèle récurrent par jour de semaine)
+// — mêmes heures que celles proposées au propriétaire lors d'une réservation
+// planifiée.
+const AVAIL_SLOTS = [
+  '06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00',
+  '15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00',
 ];
-const AVAIL_SLOTS = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
 
 export default function WalkerHome() {
  const navigate = useNavigate();
@@ -64,13 +64,17 @@ export default function WalkerHome() {
  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
  const [calSelectedDate, setCalSelectedDate] = useState(null);
 
- // Mes disponibilités (Balade / Garde à domicile), déclarées par jour de la
- // semaine — servent à recevoir de vraies demandes planifiées plutôt que des
- // demandes envoyées au hasard.
+ // Mes disponibilités (Balade / Garde à domicile), déclarées jour par jour
+ // sur un vrai calendrier (pas un modèle récurrent par jour de semaine) —
+ // servent à recevoir de vraies demandes planifiées plutôt que des demandes
+ // envoyées au hasard. `availability[service][dateStr]` = { fullDay, slots }.
  const [availService, setAvailService] = useState('walk');
- const [availSelectedDay, setAvailSelectedDay] = useState(1);
+ const [availCalMonth, setAvailCalMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
+ const [availSelectedDate, setAvailSelectedDate] = useState(null);
  const [availability, setAvailability] = useState({ walk: {}, home: {} });
  const [availLoading, setAvailLoading] = useState(false);
+ const [availDayFullDay, setAvailDayFullDay] = useState(false);
+ const [availDaySlots, setAvailDaySlots] = useState([]);
  const [availSaving, setAvailSaving] = useState(false);
  const [availSuccess, setAvailSuccess] = useState(false);
 
@@ -184,7 +188,9 @@ export default function WalkerHome() {
  };
 
  // Charge mes disponibilités déclarées (Balade + Garde à domicile), une
- // ligne par jour et par service en base, regroupées ici par service.
+ // ligne par jour précis et par service en base, regroupées ici par service
+ // puis par date — sert à la fois à marquer les jours sur le calendrier et à
+ // pré-remplir l'éditeur du jour sélectionné.
  useEffect(() => {
    if (tab !== 'availability' || !walkerId) return;
    const loadAvailability = async () => {
@@ -193,7 +199,7 @@ export default function WalkerHome() {
      const grouped = { walk: {}, home: {} };
      (data || []).forEach(row => {
        grouped[row.service] = grouped[row.service] || {};
-       grouped[row.service][row.day_of_week] = Array.isArray(row.slots) ? row.slots : [];
+       grouped[row.service][row.date] = { fullDay: !!row.full_day, slots: Array.isArray(row.slots) ? row.slots : [] };
      });
      setAvailability(grouped);
      setAvailLoading(false);
@@ -201,35 +207,57 @@ export default function WalkerHome() {
    loadAvailability();
  }, [tab, walkerId]);
 
- const toggleAvailSlot = (time) => {
+ // Sélectionner un jour sur le calendrier charge son état actuel (déjà connu
+ // localement, pas besoin d'une nouvelle requête) dans l'éditeur du jour.
+ const selectAvailDate = (dateStr) => {
    setAvailSuccess(false);
-   setAvailability(prev => {
-     const dayList = prev[availService]?.[availSelectedDay] || [];
-     const newList = dayList.includes(time) ? dayList.filter(t => t !== time) : [...dayList, time];
-     return { ...prev, [availService]: { ...(prev[availService] || {}), [availSelectedDay]: newList } };
-   });
+   setAvailSelectedDate(dateStr);
+   const existing = availability[availService]?.[dateStr];
+   setAvailDayFullDay(existing?.fullDay || false);
+   setAvailDaySlots(existing?.slots || []);
  };
 
- // Enregistre les 14 lignes (7 jours × 2 services) d'un coup — plus simple
- // à raisonner qu'une sauvegarde créneau par créneau.
- const saveAvailability = async () => {
-   if (!walkerId) return;
+ // On change de service (Balade / Garde à domicile) sans perdre le jour
+ // sélectionné : l'éditeur se recharge avec l'état de ce jour pour ce
+ // service-là, qui peut être différent.
+ useEffect(() => {
+   if (!availSelectedDate) return;
+   const existing = availability[availService]?.[availSelectedDate];
+   setAvailDayFullDay(existing?.fullDay || false);
+   setAvailDaySlots(existing?.slots || []);
+ }, [availService, availSelectedDate, availability]);
+
+ const toggleAvailDayFullDay = () => {
+   setAvailSuccess(false);
+   setAvailDayFullDay(v => !v);
+ };
+
+ const toggleAvailDaySlot = (time) => {
+   setAvailSuccess(false);
+   setAvailDaySlots(prev => prev.includes(time) ? prev.filter(t => t !== time) : [...prev, time]);
+ };
+
+ // N'enregistre que le jour affiché dans l'éditeur — un vrai calendrier
+ // couvre trop de dates possibles pour tout sauvegarder d'un coup comme
+ // avant (7 jours fixes par service).
+ const saveAvailDay = async () => {
+   if (!walkerId || !availSelectedDate) return;
    setAvailSaving(true);
    try {
-     const rows = [];
-     ['walk', 'home'].forEach(service => {
-       AVAIL_DAYS.forEach(d => {
-         rows.push({
-           walker_id: walkerId,
-           service,
-           day_of_week: d.id,
-           slots: availability[service]?.[d.id] || [],
-           updated_at: new Date().toISOString(),
-         });
-       });
-     });
-     const { error } = await supabase.from('walker_availability').upsert(rows, { onConflict: 'walker_id,service,day_of_week' });
+     const row = {
+       walker_id: walkerId,
+       service: availService,
+       date: availSelectedDate,
+       full_day: availDayFullDay,
+       slots: availDayFullDay ? [] : availDaySlots,
+       updated_at: new Date().toISOString(),
+     };
+     const { error } = await supabase.from('walker_availability').upsert(row, { onConflict: 'walker_id,service,date' });
      if (!error) {
+       setAvailability(prev => ({
+         ...prev,
+         [availService]: { ...(prev[availService] || {}), [availSelectedDate]: { fullDay: availDayFullDay, slots: availDayFullDay ? [] : availDaySlots } },
+       }));
        setAvailSuccess(true);
        setTimeout(() => setAvailSuccess(false), 3000);
      }
@@ -320,6 +348,18 @@ export default function WalkerHome() {
  const isSameMonth = (d) => d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
  const todayEarnings = history.filter(h => h.createdAt && isSameDay(new Date(h.createdAt))).reduce((sum, h) => sum + h.price, 0);
  const monthEarnings = history.filter(h => h.createdAt && isSameMonth(new Date(h.createdAt))).reduce((sum, h) => sum + h.price, 0);
+
+ // Calendrier de "Mes disponibilités" — même construction que le calendrier
+ // de l'historique ci-dessus, sur son propre mois/sélection.
+ const todayKey = dayKey(now);
+ const availCalYear = availCalMonth.getFullYear();
+ const availCalMonthIndex = availCalMonth.getMonth();
+ const availCalFirstWeekday = (new Date(availCalYear, availCalMonthIndex, 1).getDay() + 6) % 7;
+ const availCalDaysInMonth = new Date(availCalYear, availCalMonthIndex + 1, 0).getDate();
+ const availCalCells = [
+   ...Array(availCalFirstWeekday).fill(null),
+   ...Array(availCalDaysInMonth).fill(0).map((_, i) => i + 1),
+ ];
 
  // Chercher une vraie demande de balade en attente pendant qu'on est disponible
  useEffect(() => {
@@ -1692,7 +1732,7 @@ export default function WalkerHome() {
              ← Retour au profil
            </div>
 
-           <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Déclarez vos créneaux disponibles pour recevoir de vraies demandes planifiées à l'avance — séparément pour la Balade et la Garde à domicile.</p>
+           <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Déclarez vos disponibilités jour par jour, sur le calendrier — séparément pour la Balade et la Garde à domicile. Choisissez une journée entière ou seulement quelques créneaux.</p>
 
            <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 16 }}>
              {[{ id: 'walk', label: '🐕 Balade' }, { id: 'home', label: '🏠 Garde à domicile' }].map(s => (
@@ -1700,39 +1740,81 @@ export default function WalkerHome() {
              ))}
            </div>
 
-           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 16 }}>
-             {AVAIL_DAYS.map(d => {
-               const count = (availability[availService]?.[d.id] || []).length;
-               return (
-                 <div key={d.id} onClick={() => setAvailSelectedDay(d.id)} style={{ flexShrink: 0, padding: '10px 14px', borderRadius: 12, border: availSelectedDay === d.id ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: availSelectedDay === d.id ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', textAlign: 'center' }}>
-                   <div style={{ fontSize: 12, fontWeight: availSelectedDay === d.id ? 700 : 400, color: availSelectedDay === d.id ? '#0F6E56' : '#555' }}>{d.label.slice(0, 3)}</div>
-                   <div style={{ fontSize: 10, color: count > 0 ? '#1D9E75' : '#CCC', marginTop: 2 }}>{count > 0 ? `${count} h` : '—'}</div>
-                 </div>
-               );
-             })}
-           </div>
-
            {availLoading ? (
              <div style={{ textAlign: 'center', padding: 30, color: '#888', fontSize: 14 }}>Chargement...</div>
            ) : (
-             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 20 }}>
-               {AVAIL_SLOTS.map(t => {
-                 const active = (availability[availService]?.[availSelectedDay] || []).includes(t);
-                 return (
-                   <div key={t} onClick={() => toggleAvailSlot(t)} style={{ padding: '10px 4px', textAlign: 'center', borderRadius: 10, border: active ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: active ? '#E1F5EE' : '#FAFAFA', cursor: 'pointer', fontSize: 13, fontWeight: active ? 700 : 400, color: active ? '#0F6E56' : '#555' }}>{t}</div>
-                 );
-               })}
-             </div>
-           )}
+             <>
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                 <button onClick={() => setAvailCalMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))} style={{ background: 'none', border: 'none', fontSize: 18, color: '#1D9E75', cursor: 'pointer', padding: 4 }}>‹</button>
+                 <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', textTransform: 'capitalize' }}>{availCalMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
+                 <button onClick={() => setAvailCalMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))} style={{ background: 'none', border: 'none', fontSize: 18, color: '#1D9E75', cursor: 'pointer', padding: 4 }}>›</button>
+               </div>
+               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 6 }}>
+                 {['L','M','M','J','V','S','D'].map((d, i) => (
+                   <div key={i} style={{ textAlign: 'center', fontSize: 11, color: '#AAA', fontWeight: 600 }}>{d}</div>
+                 ))}
+               </div>
+               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 16 }}>
+                 {availCalCells.map((day, i) => {
+                   if (!day) return <div key={i} />;
+                   const dateStr = `${availCalYear}-${String(availCalMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                   const isPast = dateStr < todayKey;
+                   const dayInfo = availability[availService]?.[dateStr];
+                   const hasAvail = dayInfo && (dayInfo.fullDay || dayInfo.slots.length > 0);
+                   const isSelected = availSelectedDate === dateStr;
+                   const isToday = dateStr === todayKey;
+                   return (
+                     <div key={i} onClick={() => !isPast && selectAvailDate(dateStr)}
+                       style={{ aspectRatio: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 10, cursor: isPast ? 'default' : 'pointer', opacity: isPast ? 0.3 : 1, background: isSelected ? '#1D9E75' : hasAvail ? '#E1F5EE' : 'transparent', border: isToday && !isSelected ? '1.5px solid #1D9E75' : '1.5px solid transparent' }}>
+                       <span style={{ fontSize: 13, fontWeight: isSelected ? 700 : 400, color: isSelected ? '#fff' : '#1A1A1A' }}>{day}</span>
+                       {hasAvail && !isSelected && <span style={{ fontSize: 8, color: '#1D9E75' }}>{dayInfo.fullDay ? '🌞' : '●'}</span>}
+                     </div>
+                   );
+                 })}
+               </div>
 
-           {availSuccess && (
-             <div style={{ background: '#E1F5EE', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
-               ✅ Disponibilités enregistrées !
-             </div>
+               {availSelectedDate ? (
+                 <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '16px', marginBottom: 16 }}>
+                   <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 12, textTransform: 'capitalize' }}>
+                     {new Date(`${availSelectedDate}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                   </div>
+                   <div onClick={toggleAvailDayFullDay} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, border: availDayFullDay ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: availDayFullDay ? '#E1F5EE' : '#fff', cursor: 'pointer', marginBottom: 14 }}>
+                     <span style={{ fontSize: 20 }}>🌞</span>
+                     <div style={{ flex: 1 }}>
+                       <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>Toute la journée</div>
+                       <div style={{ fontSize: 11, color: '#888' }}>Disponible de 06:00 à 23:00</div>
+                     </div>
+                     <div style={{ width: 26, height: 26, borderRadius: '50%', border: `2px solid ${availDayFullDay ? '#1D9E75' : '#CCC'}`, background: availDayFullDay ? '#1D9E75' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#fff', fontWeight: 700 }}>{availDayFullDay ? '✓' : ''}</div>
+                   </div>
+
+                   {!availDayFullDay && (
+                     <>
+                       <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>Ou seulement certains créneaux :</div>
+                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 4 }}>
+                         {AVAIL_SLOTS.map(t => {
+                           const active = availDaySlots.includes(t);
+                           return (
+                             <div key={t} onClick={() => toggleAvailDaySlot(t)} style={{ padding: '10px 4px', textAlign: 'center', borderRadius: 10, border: active ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: active ? '#E1F5EE' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: active ? 700 : 400, color: active ? '#0F6E56' : '#555' }}>{t}</div>
+                           );
+                         })}
+                       </div>
+                     </>
+                   )}
+
+                   {availSuccess && (
+                     <div style={{ background: '#E1F5EE', borderRadius: 10, padding: '10px 14px', marginTop: 14, marginBottom: 4, fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
+                       ✅ Enregistré !
+                     </div>
+                   )}
+                   <button onClick={saveAvailDay} disabled={availSaving} style={{ width: '100%', padding: 13, marginTop: 14, background: availSaving ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: availSaving ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: availSaving ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                     {availSaving ? 'Enregistrement...' : '💾 Enregistrer ce jour'}
+                   </button>
+                 </div>
+               ) : (
+                 <div style={{ textAlign: 'center', padding: '20px', color: '#AAA', fontSize: 13 }}>Touchez un jour sur le calendrier pour déclarer votre disponibilité.</div>
+               )}
+             </>
            )}
-           <button onClick={saveAvailability} disabled={availSaving} style={{ width: '100%', padding: 14, background: availSaving ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: availSaving ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: availSaving ? 'default' : 'pointer', fontFamily: 'inherit' }}>
-             {availSaving ? 'Enregistrement...' : '💾 Enregistrer mes disponibilités'}
-           </button>
          </div>
        )}
 

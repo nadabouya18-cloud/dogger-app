@@ -70,7 +70,14 @@ export default function WalkerHome() {
  // envoyées au hasard. `availability[service][dateStr]` = { fullDay, slots }.
  const [availService, setAvailService] = useState('walk');
  const [availCalMonth, setAvailCalMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
- const [availSelectedDate, setAvailSelectedDate] = useState(null);
+ // Un ou plusieurs jours peuvent être sélectionnés à la fois (période "du 1er
+ // au 20", ou mois entier en un tap) — `availSelectedDates` est toujours un
+ // tableau, même pour un seul jour, pour n'avoir qu'un seul enregistrement à
+ // gérer. `availRangeAnchor`/`availPickingRange` gèrent le tap-tap "premier
+ // jour puis dernier jour" pour composer une période.
+ const [availSelectedDates, setAvailSelectedDates] = useState([]);
+ const [availRangeAnchor, setAvailRangeAnchor] = useState(null);
+ const [availPickingRange, setAvailPickingRange] = useState(false);
  const [availability, setAvailability] = useState({ walk: {}, home: {} });
  const [availLoading, setAvailLoading] = useState(false);
  const [availDayFullDay, setAvailDayFullDay] = useState(false);
@@ -207,25 +214,86 @@ export default function WalkerHome() {
    loadAvailability();
  }, [tab, walkerId]);
 
- // Sélectionner un jour sur le calendrier charge son état actuel (déjà connu
- // localement, pas besoin d'une nouvelle requête) dans l'éditeur du jour.
- const selectAvailDate = (dateStr) => {
+ // Toucher un jour seul sur le calendrier le sélectionne et charge son état
+ // actuel (déjà connu localement, pas besoin d'une nouvelle requête) dans
+ // l'éditeur — c'est aussi le point de départ si on veut ensuite étendre à
+ // une période.
+ const selectSingleDate = (dateStr) => {
    setAvailSuccess(false);
-   setAvailSelectedDate(dateStr);
-   const existing = availability[availService]?.[dateStr];
-   setAvailDayFullDay(existing?.fullDay || false);
-   setAvailDaySlots(existing?.slots || []);
+   setAvailPickingRange(false);
+   setAvailRangeAnchor(dateStr);
+   setAvailSelectedDates([dateStr]);
  };
 
- // On change de service (Balade / Garde à domicile) sans perdre le jour
- // sélectionné : l'éditeur se recharge avec l'état de ce jour pour ce
- // service-là, qui peut être différent.
+ // Démarre le "tap du dernier jour" d'une période, à partir du jour déjà
+ // sélectionné (qui sert d'ancre).
+ const startRangePicking = () => {
+   if (availSelectedDates.length !== 1) return;
+   setAvailRangeAnchor(availSelectedDates[0]);
+   setAvailPickingRange(true);
+ };
+
+ // Termine la période entre le jour ancré et celui qu'on vient de toucher,
+ // quel que soit l'ordre des deux (ex : ancre le 20, on touche le 1er → la
+ // période va bien du 1er au 20). Le réglage (journée entière / créneaux)
+ // choisi ensuite s'appliquera à tous ces jours d'un coup.
+ const completeRangePicking = (dateStr) => {
+   const start = availRangeAnchor < dateStr ? availRangeAnchor : dateStr;
+   const end = availRangeAnchor < dateStr ? dateStr : availRangeAnchor;
+   const dates = [];
+   const cur = new Date(`${start}T00:00:00`);
+   const endD = new Date(`${end}T00:00:00`);
+   while (cur <= endD) {
+     dates.push(dayKey(cur));
+     cur.setDate(cur.getDate() + 1);
+   }
+   setAvailSuccess(false);
+   setAvailPickingRange(false);
+   setAvailSelectedDates(dates);
+   setAvailDayFullDay(false);
+   setAvailDaySlots([]);
+ };
+
+ const handleCalendarDayClick = (dateStr) => {
+   if (availPickingRange && availRangeAnchor) {
+     completeRangePicking(dateStr);
+   } else {
+     selectSingleDate(dateStr);
+   }
+ };
+
+ // Coche en un tap tous les jours à venir (à partir d'aujourd'hui) du mois
+ // affiché — pratique pour dire "je suis dispo tout le mois".
+ const selectWholeMonth = () => {
+   const dates = [];
+   for (let d = 1; d <= availCalDaysInMonth; d++) {
+     const dateStr = `${availCalYear}-${String(availCalMonthIndex + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+     if (dateStr >= todayKey) dates.push(dateStr);
+   }
+   setAvailSuccess(false);
+   setAvailPickingRange(false);
+   setAvailSelectedDates(dates);
+   setAvailDayFullDay(false);
+   setAvailDaySlots([]);
+ };
+
+ const clearAvailSelection = () => {
+   setAvailSelectedDates([]);
+   setAvailRangeAnchor(null);
+   setAvailPickingRange(false);
+ };
+
+ // On change de service (Balade / Garde à domicile), ou de sélection, sans
+ // perdre les jours choisis : pour un seul jour, l'éditeur se recharge avec
+ // l'état déjà connu de ce jour pour ce service. Pour plusieurs jours (période
+ // ou mois entier), on repart d'un réglage vierge — les jours choisis peuvent
+ // avoir des états différents entre eux, impossible à pré-remplir sans ambiguïté.
  useEffect(() => {
-   if (!availSelectedDate) return;
-   const existing = availability[availService]?.[availSelectedDate];
+   if (availSelectedDates.length !== 1) return;
+   const existing = availability[availService]?.[availSelectedDates[0]];
    setAvailDayFullDay(existing?.fullDay || false);
    setAvailDaySlots(existing?.slots || []);
- }, [availService, availSelectedDate, availability]);
+ }, [availService, availSelectedDates, availability]);
 
  const toggleAvailDayFullDay = () => {
    setAvailSuccess(false);
@@ -237,27 +305,30 @@ export default function WalkerHome() {
    setAvailDaySlots(prev => prev.includes(time) ? prev.filter(t => t !== time) : [...prev, time]);
  };
 
- // N'enregistre que le jour affiché dans l'éditeur — un vrai calendrier
- // couvre trop de dates possibles pour tout sauvegarder d'un coup comme
- // avant (7 jours fixes par service).
- const saveAvailDay = async () => {
-   if (!walkerId || !availSelectedDate) return;
+ // Enregistre tous les jours actuellement sélectionnés en un seul appel
+ // groupé (même réglage pour chacun) — que ce soit un jour, une période, ou
+ // un mois entier.
+ const saveAvailDays = async () => {
+   if (!walkerId || availSelectedDates.length === 0) return;
    setAvailSaving(true);
    try {
-     const row = {
+     const rows = availSelectedDates.map(dateStr => ({
        walker_id: walkerId,
        service: availService,
-       date: availSelectedDate,
+       date: dateStr,
        full_day: availDayFullDay,
        slots: availDayFullDay ? [] : availDaySlots,
        updated_at: new Date().toISOString(),
-     };
-     const { error } = await supabase.from('walker_availability').upsert(row, { onConflict: 'walker_id,service,date' });
+     }));
+     const { error } = await supabase.from('walker_availability').upsert(rows, { onConflict: 'walker_id,service,date' });
      if (!error) {
-       setAvailability(prev => ({
-         ...prev,
-         [availService]: { ...(prev[availService] || {}), [availSelectedDate]: { fullDay: availDayFullDay, slots: availDayFullDay ? [] : availDaySlots } },
-       }));
+       setAvailability(prev => {
+         const updatedService = { ...(prev[availService] || {}) };
+         availSelectedDates.forEach(dateStr => {
+           updatedService[dateStr] = { fullDay: availDayFullDay, slots: availDayFullDay ? [] : availDaySlots };
+         });
+         return { ...prev, [availService]: updatedService };
+       });
        setAvailSuccess(true);
        setTimeout(() => setAvailSuccess(false), 3000);
      }
@@ -1732,7 +1803,7 @@ export default function WalkerHome() {
              ← Retour au profil
            </div>
 
-           <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Déclarez vos disponibilités jour par jour, sur le calendrier — séparément pour la Balade et la Garde à domicile. Choisissez une journée entière ou seulement quelques créneaux.</p>
+           <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Déclarez vos disponibilités sur le calendrier — séparément pour la Balade et la Garde à domicile. Touchez un jour pour le déclarer seul, ou utilisez les boutons ci-dessous pour cocher plusieurs jours d'un coup (une période, ou tout le mois).</p>
 
            <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 16 }}>
              {[{ id: 'walk', label: '🐕 Balade' }, { id: 'home', label: '🏠 Garde à domicile' }].map(s => (
@@ -1749,6 +1820,27 @@ export default function WalkerHome() {
                  <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', textTransform: 'capitalize' }}>{availCalMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
                  <button onClick={() => setAvailCalMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))} style={{ background: 'none', border: 'none', fontSize: 18, color: '#1D9E75', cursor: 'pointer', padding: 4 }}>›</button>
                </div>
+
+               {/* Raccourcis pour sélectionner plusieurs jours d'un coup, plutôt
+                   que de devoir enregistrer chaque jour un par un. */}
+               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                 {availPickingRange ? (
+                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FFF6E0', border: '1.5px solid #F0B429', borderRadius: 10, padding: '9px 12px' }}>
+                     <span style={{ fontSize: 12, color: '#8A6100', fontWeight: 600 }}>Touchez le dernier jour de la période (du {availRangeAnchor ? new Date(`${availRangeAnchor}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : ''})</span>
+                     <span onClick={() => setAvailPickingRange(false)} style={{ fontSize: 12, color: '#8A6100', fontWeight: 700, cursor: 'pointer', marginLeft: 8 }}>✕</span>
+                   </div>
+                 ) : (
+                   <>
+                     <button onClick={startRangePicking} disabled={availSelectedDates.length !== 1} style={{ flex: 1, padding: '9px 6px', borderRadius: 10, border: '1.5px solid #E8E8E8', background: '#fff', color: availSelectedDates.length === 1 ? '#1D9E75' : '#CCC', fontSize: 12, fontWeight: 600, cursor: availSelectedDates.length === 1 ? 'pointer' : 'default', fontFamily: 'inherit' }}>
+                       🔗 Étendre à une période
+                     </button>
+                     <button onClick={selectWholeMonth} style={{ flex: 1, padding: '9px 6px', borderRadius: 10, border: '1.5px solid #E8E8E8', background: '#fff', color: '#1D9E75', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                       ✅ Tout le mois
+                     </button>
+                   </>
+                 )}
+               </div>
+
                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 6 }}>
                  {['L','M','M','J','V','S','D'].map((d, i) => (
                    <div key={i} style={{ textAlign: 'center', fontSize: 11, color: '#AAA', fontWeight: 600 }}>{d}</div>
@@ -1761,11 +1853,12 @@ export default function WalkerHome() {
                    const isPast = dateStr < todayKey;
                    const dayInfo = availability[availService]?.[dateStr];
                    const hasAvail = dayInfo && (dayInfo.fullDay || dayInfo.slots.length > 0);
-                   const isSelected = availSelectedDate === dateStr;
+                   const isSelected = availSelectedDates.includes(dateStr);
+                   const isRangeAnchor = availPickingRange && availRangeAnchor === dateStr;
                    const isToday = dateStr === todayKey;
                    return (
-                     <div key={i} onClick={() => !isPast && selectAvailDate(dateStr)}
-                       style={{ aspectRatio: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 10, cursor: isPast ? 'default' : 'pointer', opacity: isPast ? 0.3 : 1, background: isSelected ? '#1D9E75' : hasAvail ? '#E1F5EE' : 'transparent', border: isToday && !isSelected ? '1.5px solid #1D9E75' : '1.5px solid transparent' }}>
+                     <div key={i} onClick={() => !isPast && handleCalendarDayClick(dateStr)}
+                       style={{ aspectRatio: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 10, cursor: isPast ? 'default' : 'pointer', opacity: isPast ? 0.3 : 1, background: isSelected ? '#1D9E75' : hasAvail ? '#E1F5EE' : 'transparent', border: isRangeAnchor ? '1.5px solid #F0B429' : (isToday && !isSelected ? '1.5px solid #1D9E75' : '1.5px solid transparent') }}>
                        <span style={{ fontSize: 13, fontWeight: isSelected ? 700 : 400, color: isSelected ? '#fff' : '#1A1A1A' }}>{day}</span>
                        {hasAvail && !isSelected && <span style={{ fontSize: 8, color: '#1D9E75' }}>{dayInfo.fullDay ? '🌞' : '●'}</span>}
                      </div>
@@ -1773,10 +1866,17 @@ export default function WalkerHome() {
                  })}
                </div>
 
-               {availSelectedDate ? (
+               {availSelectedDates.length > 0 ? (
                  <div style={{ background: '#F8FAF9', borderRadius: 16, padding: '16px', marginBottom: 16 }}>
-                   <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 12, textTransform: 'capitalize' }}>
-                     {new Date(`${availSelectedDate}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                     <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', textTransform: 'capitalize' }}>
+                       {availSelectedDates.length === 1
+                         ? new Date(`${availSelectedDates[0]}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+                         : `${availSelectedDates.length} jours sélectionnés (du ${new Date(`${availSelectedDates[0]}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} au ${new Date(`${availSelectedDates[availSelectedDates.length - 1]}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })})`}
+                     </div>
+                     {availSelectedDates.length > 1 && (
+                       <span onClick={clearAvailSelection} style={{ fontSize: 12, color: '#AAA', fontWeight: 600, cursor: 'pointer' }}>✕ Annuler</span>
+                     )}
                    </div>
                    <div onClick={toggleAvailDayFullDay} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, border: availDayFullDay ? '2px solid #1D9E75' : '1.5px solid #E8E8E8', background: availDayFullDay ? '#E1F5EE' : '#fff', cursor: 'pointer', marginBottom: 14 }}>
                      <span style={{ fontSize: 20 }}>🌞</span>
@@ -1801,13 +1901,19 @@ export default function WalkerHome() {
                      </>
                    )}
 
+                   {availSelectedDates.length > 1 && (
+                     <div style={{ background: '#F0F7F4', borderRadius: 10, padding: '8px 12px', marginTop: 12, fontSize: 11, color: '#5A8A78' }}>
+                       Ce réglage s'appliquera aux {availSelectedDates.length} jours sélectionnés.
+                     </div>
+                   )}
+
                    {availSuccess && (
                      <div style={{ background: '#E1F5EE', borderRadius: 10, padding: '10px 14px', marginTop: 14, marginBottom: 4, fontSize: 13, color: '#0F6E56', fontWeight: 600, textAlign: 'center' }}>
                        ✅ Enregistré !
                      </div>
                    )}
-                   <button onClick={saveAvailDay} disabled={availSaving} style={{ width: '100%', padding: 13, marginTop: 14, background: availSaving ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: availSaving ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: availSaving ? 'default' : 'pointer', fontFamily: 'inherit' }}>
-                     {availSaving ? 'Enregistrement...' : '💾 Enregistrer ce jour'}
+                   <button onClick={saveAvailDays} disabled={availSaving} style={{ width: '100%', padding: 13, marginTop: 14, background: availSaving ? '#F0F0F0' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: availSaving ? '#AAA' : '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: availSaving ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                     {availSaving ? 'Enregistrement...' : (availSelectedDates.length > 1 ? `💾 Enregistrer ces ${availSelectedDates.length} jours` : '💾 Enregistrer ce jour')}
                    </button>
                  </div>
                ) : (

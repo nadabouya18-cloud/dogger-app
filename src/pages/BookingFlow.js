@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import useBookingStore from '../store/bookingStore';
 
@@ -106,6 +106,15 @@ function distanceKm(lat1, lng1, lat2, lng2) {
 export default function BookingFlow() {
   const navigate = useNavigate();
   const { flowType: urlFlowType } = useParams();
+  const location = useLocation();
+
+  // Rebooker directement avec un promeneur déjà croisé (bouton "🔁 Rebooker"
+  // depuis l'historique du propriétaire) : le promeneur visé arrive via
+  // location.state, pas l'URL — reste valable tant que la page n'est pas
+  // rechargée pendant le parcours.
+  const preferredWalker = location.state?.preferredWalkerId
+    ? { id: location.state.preferredWalkerId, name: location.state.preferredWalkerName || 'ce promeneur' }
+    : null;
 
   const {
     flowType, setFlowType,
@@ -892,6 +901,35 @@ export default function BookingFlow() {
     startRealWalkSearch(w);
   };
 
+  // Rebooker avec un promeneur précis venu de l'historique : on vérifie sa
+  // disponibilité réelle (en ligne maintenant, ou dispo à la date/l'heure
+  // choisie) avant d'envoyer la demande — s'il n'est plus disponible, on le
+  // dit clairement plutôt que de renvoyer un échec silencieux.
+  const requestPreferredWalker = async () => {
+    if (!preferredWalker) return;
+    setError('');
+    if (walkMode === 'later') {
+      const pool = await fetchScheduledCandidates();
+      const w = pool.find(c => c.id === preferredWalker.id);
+      if (!w) {
+        setError(`${preferredWalker.name} n'a pas de disponibilité déclarée pour ce créneau. Essayez « Choisir mon promeneur » ou une autre date.`);
+        return;
+      }
+      createScheduledBooking(w);
+      return;
+    }
+    setScheduledSending(true);
+    const { data: candidates, error: rpcError } = await supabase.rpc('get_available_walkers');
+    setScheduledSending(false);
+    if (rpcError) { setError('Impossible de vérifier sa disponibilité pour le moment.'); return; }
+    const w = (candidates || []).find(c => c.id === preferredWalker.id);
+    if (!w) {
+      setError(`${preferredWalker.name} n'est pas disponible pour le moment. Essayez « Choisir mon promeneur » ou la recherche automatique.`);
+      return;
+    }
+    startRealWalkSearch(w);
+  };
+
   // Annulation pendant la recherche elle-même (avant qu'un promeneur ait
   // répondu) : on coupe le sondage, on libère la réservation en base si
   // elle a déjà été créée, puis on revient au tableau de bord.
@@ -1557,6 +1595,11 @@ export default function BookingFlow() {
           {error && <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>⚠️ {error}</div>}
           {walkStep === 4 ? (
             <>
+              {preferredWalker && (
+                <button onClick={requestPreferredWalker} disabled={scheduledSending} style={{ width: '100%', padding: 15, background: '#FFF8E1', color: '#B8860B', border: '1.5px solid #F0C24A', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: scheduledSending ? 'default' : 'pointer', opacity: scheduledSending ? 0.7 : 1, marginBottom: 10, fontFamily: 'inherit' }}>
+                  {scheduledSending ? 'Envoi en cours...' : `🔁 Redemander à ${preferredWalker.name}`}
+                </button>
+              )}
               <button onClick={confirmSearch} disabled={scheduledSending} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: scheduledSending ? 'default' : 'pointer', opacity: scheduledSending ? 0.7 : 1, boxShadow: '0 4px 16px rgba(29,158,117,0.35)', marginBottom: 10 }}>
                 {scheduledSending ? 'Envoi en cours...' : walkMode === 'later' ? '⚡ Envoyer automatiquement' : '⚡ Trouver automatiquement'}
               </button>

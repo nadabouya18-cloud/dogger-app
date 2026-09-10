@@ -950,7 +950,7 @@ export default function BookingFlow() {
             <button onClick={() => startRealWalkSearch()} style={{ width: '100%', padding: 13, background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>⚡ Trouver automatiquement</button>
           </>
         ) : (
-          <button onClick={() => startRealWalkSearch()} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginTop: 20, marginBottom: 10 }}>🔄 Réessayer</button>
+          <button onClick={() => { matchTriedRef.current = []; startRealWalkSearch(); }} style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', marginTop: 20, marginBottom: 10 }}>🔄 Réessayer</button>
         )}
         <button onClick={goToDashboard} style={{ width: '100%', padding: 13, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Annuler</button>
       </div>

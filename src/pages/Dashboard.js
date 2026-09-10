@@ -80,6 +80,7 @@ export default function Dashboard() {
   const [historyChat, setHistoryChat] = useState(null); // booking sélectionnée pour revoir sa conversation
   const [historyMessages, setHistoryMessages] = useState([]);
   const [historyMsgLoading, setHistoryMsgLoading] = useState(false);
+  const [historyInput, setHistoryInput] = useState('');
 
   // Balades planifiées à l'avance : envoyées à un vrai promeneur qui doit
   // les confirmer — suivies ici, indépendamment de la balade "en direct".
@@ -366,11 +367,28 @@ export default function Dashboard() {
     setHistoryChat(booking);
     setHistoryMsgLoading(true);
     setHistoryMessages([]);
+    setHistoryInput('');
     const { data } = await supabase
       .from('booking_messages').select('*').eq('booking_id', booking.id)
       .order('created_at', { ascending: true });
     setHistoryMessages(data || []);
     setHistoryMsgLoading(false);
+  };
+
+  // Répondre reste possible après la fin d'une balade (utile si le courant
+  // passe bien avec le promeneur) — la conversation n'est donc plus figée en
+  // lecture seule une fois la balade terminée.
+  const sendHistoryMessage = async () => {
+    const text = historyInput.trim();
+    if (!text || !historyChat?.id || !ownerIdRef.current) return;
+    setHistoryInput('');
+    await supabase.from('booking_messages').insert({
+      booking_id: historyChat.id, sender_id: ownerIdRef.current, kind: 'text', text,
+    });
+    const { data } = await supabase
+      .from('booking_messages').select('*').eq('booking_id', historyChat.id)
+      .order('created_at', { ascending: true });
+    setHistoryMessages(data || []);
   };
 
   useEffect(() => {
@@ -1004,7 +1022,15 @@ export default function Dashboard() {
                     <div style={{ fontSize: 12, color: b.status === 'incident' ? '#E24B4A' : '#888' }}>{statusLabel}</div>
                   </div>
                   <div style={{ fontSize: 12, color: '#888' }}>{new Date(b.created_at).toLocaleDateString('fr-FR')} · {b.duration} min</div>
-                  <div style={{ fontSize: 12, color: '#1D9E75', marginTop: 4, fontWeight: 600 }}>💬 Voir la conversation</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                    <div style={{ fontSize: 12, color: '#1D9E75', fontWeight: 600 }}>💬 Voir la conversation</div>
+                    {b.status === 'completed' && b.walker_id && (
+                      <button onClick={(e) => { e.stopPropagation(); navigate('/book/walk', { state: { preferredWalkerId: b.walker_id, preferredWalkerName: b.walker_name } }); }}
+                        style={{ padding: '7px 12px', background: '#FFF8E1', color: '#B8860B', border: '1.5px solid #F0C24A', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        🔁 Rebooker
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -1342,8 +1368,14 @@ export default function Dashboard() {
               );
             })}
           </div>
-          <div style={{ padding: '14px 16px', background: '#fff', borderTop: '1px solid #F0F0F0', textAlign: 'center', fontSize: 12, color: '#AAA' }}>
-            Balade terminée — historique en lecture seule
+          <div style={{ padding: '10px 16px', background: '#FFF8E1', textAlign: 'center', fontSize: 12, color: '#B8860B', fontWeight: 500 }}>
+            🔒 Pour votre sécurité, ne partagez pas votre numéro de téléphone ou vos coordonnées personnelles en dehors de l'app.
+          </div>
+          <div style={{ padding: '12px 16px', background: '#fff', borderTop: '1px solid #F0F0F0', display: 'flex', gap: 10, alignItems: 'center' }}>
+            <input style={{ flex: 1, padding: '12px 14px', borderRadius: 24, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA' }}
+              placeholder="Écrire un message..." value={historyInput}
+              onChange={e => setHistoryInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendHistoryMessage()} />
+            <button onClick={sendHistoryMessage} style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>➤</button>
           </div>
         </div>
       )}

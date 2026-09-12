@@ -485,11 +485,10 @@ export default function Dashboard() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const updates = {
-        first_name: editForm.first_name,
-        last_name: editForm.last_name,
-        phone: editForm.phone,
-      };
+      // Le prénom et le nom sont fixés à la création du compte : ils ne font
+      // plus partie des champs modifiables (verrou aussi posé en base par le
+      // déclencheur trg_lock_profile_name).
+      const updates = { phone: editForm.phone };
       if (newOwnerPhoto) updates.photo_url = newOwnerPhoto;
       const { error } = await supabase.from('profiles').update(updates).eq('id', session.user.id);
       if (!error) {
@@ -1143,21 +1142,23 @@ export default function Dashboard() {
 
               {editMode ? (
                 <div>
-                  {[
-                    { label: 'Prénom', key: 'first_name', placeholder: 'Marie' },
-                    { label: 'Nom', key: 'last_name', placeholder: 'Dupont' },
-                    { label: 'Téléphone', key: 'phone', placeholder: '6 12 34 56 78' },
-                  ].map(f => (
-                    <div key={f.key} style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>{f.label}</div>
-                      <input
-                        style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
-                        value={editForm[f.key]}
-                        placeholder={f.placeholder}
-                        onChange={e => setEditForm(ef => ({ ...ef, [f.key]: e.target.value }))}
-                      />
+                  {/* Prénom et nom : fixés à la création du compte, non modifiables */}
+                  <div style={{ background: '#F8FAF9', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 4 }}>Prénom et nom</div>
+                    <div style={{ fontSize: 14, color: '#1A1A1A', fontWeight: 600, marginBottom: 4 }}>
+                      {`${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || '—'}
                     </div>
-                  ))}
+                    <div style={{ fontSize: 12, color: '#AAA', lineHeight: 1.4 }}>🔒 Non modifiables une fois le compte créé.</div>
+                  </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Téléphone</div>
+                    <input
+                      style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box' }}
+                      value={editForm.phone}
+                      placeholder="6 12 34 56 78"
+                      onChange={e => setEditForm(ef => ({ ...ef, phone: e.target.value }))}
+                    />
+                  </div>
                   <button onClick={handleSaveProfile} disabled={editLoading}
                     style={{ width: '100%', padding: 14, background: editLoading ? '#A8D5C4' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: editLoading ? 'default' : 'pointer', fontFamily: 'inherit' }}>
                     {editLoading ? 'Sauvegarde...' : '✅ Sauvegarder'}

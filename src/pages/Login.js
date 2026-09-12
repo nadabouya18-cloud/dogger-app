@@ -6,6 +6,7 @@ export default function Login() {
  const navigate = useNavigate();
  const [form, setForm] = useState({ email: '', password: '' });
  const [error, setError] = useState('');
+ const [wrongDoor, setWrongDoor] = useState(null);
  const [loading, setLoading] = useState(false);
 
  const params = new URLSearchParams(window.location.search);
@@ -13,7 +14,17 @@ export default function Login() {
  const fromBooking = redirect === 'book';
  const fromWalker = redirect === 'walker';
 
- const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
+ const update = (field, value) => {
+   setForm(f => ({ ...f, [field]: value }));
+   if (wrongDoor) { setWrongDoor(null); setError(''); }
+ };
+
+ // Bascule vers l'autre porte d'entrée sans quitter l'écran de connexion.
+ const switchDoor = (target) => {
+   setWrongDoor(null);
+   setError('');
+   navigate(target === 'walker' ? '/login?redirect=walker' : '/login?redirect=book');
+ };
 
  const handleLogin = async () => {
    if (!form.email || !form.email.includes('@')) { setError('Email invalide'); return; }
@@ -36,17 +47,28 @@ export default function Login() {
        return;
      }
 
-     // Un compte promeneur a une ligne dans walker_profiles : on l'envoie
-     // toujours vers son espace promeneur, quel que soit le paramètre redirect.
+     // Un compte promeneur a une ligne dans walker_profiles. Les deux portes
+     // d'entrée sont étanches : on refuse la connexion (et on déconnecte
+     // aussitôt) si le compte ne correspond pas à la porte utilisée.
      const userId = signInData?.user?.id;
-     let destination = '/' + redirect;
-     if (userId) {
-       const { data: walkerProfile } = await supabase
-         .from('walker_profiles').select('id').eq('id', userId).maybeSingle();
-       if (walkerProfile) destination = '/walker';
-       else if (redirect === 'walker') destination = '/register-walker';
+     const { data: walkerProfile } = await supabase
+       .from('walker_profiles').select('id').eq('id', userId).maybeSingle();
+     const isWalker = !!walkerProfile;
+
+     if (isWalker && !fromWalker) {
+       await supabase.auth.signOut();
+       setWrongDoor('walker');
+       setError('Ce compte est un compte promeneur — il ne peut pas commander de balade.');
+       return;
      }
-     navigate(destination);
+     if (!isWalker && fromWalker) {
+       await supabase.auth.signOut();
+       setWrongDoor('owner');
+       setError('Ce compte est un compte propriétaire — il n\'a pas d\'espace promeneur.');
+       return;
+     }
+
+     navigate('/' + redirect);
    } catch (e) {
      setError('Une erreur est survenue — réessayez');
    } finally {
@@ -110,6 +132,18 @@ export default function Login() {
        {error && (
          <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>
            ⚠️ {error}
+           {wrongDoor === 'walker' && (
+             <button onClick={() => switchDoor('walker')}
+               style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, color: '#0F6E56', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+               → Me connecter à mon espace promeneur
+             </button>
+           )}
+           {wrongDoor === 'owner' && (
+             <button onClick={() => switchDoor('owner')}
+               style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, color: '#0F6E56', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+               → Me connecter à mon compte propriétaire
+             </button>
+           )}
          </div>
        )}
 

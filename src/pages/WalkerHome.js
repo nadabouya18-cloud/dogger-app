@@ -408,6 +408,7 @@ export default function WalkerHome() {
    ? `${profile.first_name || ''}${profile.last_name ? ' ' + profile.last_name.charAt(0) + '.' : ''}`.trim() || 'Promeneur'
    : 'Promeneur';
  const totalWalks = history.length;
+ const totalEarnings = history.reduce((sum, h) => sum + (h.price || 0), 0);
  // Note publique = moyenne des notes laissées par les vrais propriétaires
  // (table bookings.owner_rating), pas une note que le promeneur se donnerait.
  const avgRating = clientRatings.length > 0
@@ -1783,7 +1784,7 @@ export default function WalkerHome() {
            <div style={{ background: '#fff', borderRadius: 16, padding: '4px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
              {[
                { icon: '📋', label: 'Mes disponibilités', onClick: () => setTab('availability') },
-               { icon: '🏦', label: 'Informations bancaires' },
+               { icon: '🏦', label: 'Informations bancaires', onClick: () => setTab('payouts') },
                { icon: '📱', label: 'Notifications' },
                { icon: '🔒', label: 'Sécurité & mot de passe', onClick: () => setTab('security') },
                { icon: '❓', label: 'Aide & Support', onClick: () => openSupportTab() },
@@ -1796,6 +1797,50 @@ export default function WalkerHome() {
                  <span style={{ marginLeft: 'auto', color: '#CCC', fontSize: 18 }}>›</span>
                </div>
              ))}
+           </div>
+         </div>
+       )}
+
+       {/* INFORMATIONS BANCAIRES — rien n'est collecté tant que les paiements
+           en ligne ne sont pas branchés : pas d'IBAN stocké dans Dogger. */}
+       {tab === 'payouts' && (
+         <div style={{ animation: 'slidein 0.3s ease' }}>
+           <div onClick={() => setTab('profile')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
+             ← Retour au profil
+           </div>
+
+           <div style={{ background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '22px 20px', marginBottom: 16, color: '#fff' }}>
+             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginBottom: 4 }}>Total de vos missions</div>
+             <div style={{ fontSize: 34, fontWeight: 700, marginBottom: 10 }}>{totalEarnings}€</div>
+             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>{totalWalks} mission{totalWalks > 1 ? 's' : ''} · {monthEarnings}€ ce mois-ci</div>
+           </div>
+
+           <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+             <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>🏦 Virements : pas encore actifs</div>
+             <div style={{ fontSize: 13, color: '#666', lineHeight: 1.6 }}>
+               Le paiement en ligne n'est pas encore branché dans Dogger : aucun montant n'est encaissé auprès des propriétaires, donc aucun virement ne part vers vous.
+               Le total ci-dessus récapitule vos missions — ce n'est pas un solde disponible.
+             </div>
+           </div>
+
+           <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+             <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>🔒 Pourquoi votre IBAN ne vous est pas demandé</div>
+             <div style={{ fontSize: 13, color: '#666', lineHeight: 1.6 }}>
+               Vos coordonnées bancaires ne seront saisies que le jour où les virements seront réellement possibles, sur le formulaire sécurisé de notre prestataire de paiement.
+               Dogger ne les conservera pas dans sa base. Tant que ce n'est pas en place, nous préférons ne rien vous demander plutôt que de stocker des données sensibles sans raison.
+             </div>
+           </div>
+
+           <div style={{ background: '#FFF0F0', border: '1.5px solid #FFD0D0', borderRadius: 16, padding: '16px 18px', marginBottom: 24 }}>
+             <div style={{ fontSize: 15, fontWeight: 700, color: '#E24B4A', marginBottom: 8 }}>⚠️ Vigilance</div>
+             <div style={{ fontSize: 13, color: '#8A3B3A', lineHeight: 1.6, marginBottom: 12 }}>
+               Dogger ne vous demandera jamais votre IBAN, votre RIB ou vos identifiants bancaires dans la discussion d'une balade, par message ou par téléphone.
+               Si quelqu'un le fait, ne répondez pas et signalez-le.
+             </div>
+             <button onClick={() => openSupportTab()}
+               style={{ width: '100%', padding: 12, background: '#fff', color: '#E24B4A', border: '1.5px solid #FFD0D0', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+               Signaler dans Aide & Support
+             </button>
            </div>
          </div>
        )}

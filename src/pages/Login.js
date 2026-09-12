@@ -11,6 +11,7 @@ export default function Login() {
  const params = new URLSearchParams(window.location.search);
  const redirect = params.get('redirect') || 'dashboard';
  const fromBooking = redirect === 'book';
+ const fromWalker = redirect === 'walker';
 
  const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -74,7 +75,9 @@ export default function Login() {
        <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)' }}>
          {fromBooking
            ? 'Connectez-vous pour commander une balade 🐾'
-           : 'Connectez-vous à votre compte Dogger'}
+           : fromWalker
+             ? 'Connectez-vous à votre espace promeneur 🚶'
+             : 'Connectez-vous à votre compte Dogger'}
        </p>
      </div>
 
@@ -83,6 +86,12 @@ export default function Login() {
        {fromBooking && (
          <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#0F6E56', fontWeight: 500 }}>
            🐾 Connectez-vous pour accéder au booking — ou créez un compte si vous n'en avez pas encore.
+         </div>
+       )}
+
+       {fromWalker && (
+         <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#0F6E56', fontWeight: 500 }}>
+           🚶 Connectez-vous à votre espace promeneur — ou créez un compte promeneur si vous n'en avez pas encore.
          </div>
        )}
 
@@ -110,10 +119,12 @@ export default function Login() {
        </button>
 
        <div style={{ textAlign: 'center', padding: '16px 0', borderTop: '1px solid #F0F0F0' }}>
-         <span style={{ fontSize: 14, color: '#888' }}>Pas encore de compte ? </span>
-         <button onClick={() => navigate('/register')}
+         <span style={{ fontSize: 14, color: '#888' }}>
+           {fromWalker ? 'Pas encore promeneur ? ' : 'Pas encore de compte ? '}
+         </span>
+         <button onClick={() => navigate(fromWalker ? '/register-walker' : '/register')}
            style={{ background: 'none', border: 'none', color: '#1D9E75', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-           S'inscrire
+           {fromWalker ? 'Devenir promeneur' : "S'inscrire"}
          </button>
        </div>
 

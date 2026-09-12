@@ -29,6 +29,20 @@ const CANCEL_REASONS = [
   "Autre raison",
 ];
 
+// Aide & Support — FAQ propriétaire. Pur affichage : les réponses décrivent
+// le fonctionnement réel de l'app, aucune donnée en base.
+const SUPPORT_FAQ = [
+  { q: 'Comment annuler une balade ?', a: "Une balade planifiée encore en attente s'annule depuis « Vos balades planifiées », bouton « Annuler ». Une fois le promeneur en route, prévenez-le directement dans la discussion." },
+  { q: "Le promeneur n'arrive pas", a: "Sa position en direct et la discussion sont sur l'écran « En direct ». Sans nouvelles, envoyez-lui un message : il le reçoit dans le même fil." },
+  { q: "Je n'ai pas récupéré mon chien", a: "Ne confirmez pas la récupération et utilisez le signalement sur l'écran de suivi. Si la situation est urgente, appelez le 17 sans attendre. La conversation, les photos et la dernière position connue restent consultables." },
+  { q: 'À quoi servent les photos de début et de fin ?', a: "Le promeneur photographie votre chien à la prise en charge et au retour. Sans ces photos, la balade ne peut ni démarrer ni se terminer. Elles vous sont montrées avant chaque confirmation." },
+  { q: 'Comment noter mon promeneur ?', a: "Juste après avoir confirmé la récupération de votre chien, un écran propose de le noter de 1 à 5 étoiles (ou « Plus tard »). C'est cette note qui alimente sa note publique." },
+  { q: 'Comment fonctionne une balade planifiée ?', a: "Vous choisissez la date, l'heure puis un promeneur disponible sur ce créneau. Il doit accepter : ce n'est pas automatique. S'il refuse ou ne répond pas, vous êtes prévenu et choisissez quelqu'un d'autre." },
+  { q: 'Quand suis-je débité ?', a: "Le paiement en ligne n'est pas encore actif dans cette version : le montant affiché est indicatif." },
+];
+
+const SUPPORT_SUBJECTS = ['Problème sur une balade', 'Paiement', 'Mon compte', 'Un promeneur', "Bug dans l'application", 'Autre'];
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -74,8 +88,68 @@ export default function Dashboard() {
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [submittingRating, setSubmittingRating] = useState(false);
 
+  // Aide & Support. Les demandes vivent dans support_tickets : chacun ne voit
+  // que les siennes (RLS), et la réponse écrite côté Supabase revient dans
+  // "Mes demandes" — pas d'espace admin dans l'app.
+  const loadSupport = async () => {
+    if (!ownerIdRef.current) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) ownerIdRef.current = session.user.id;
+    }
+    if (!ownerIdRef.current) return;
+    setSupportLoading(true);
+    const [{ data: tickets }, { data: past }] = await Promise.all([
+      supabase.from('support_tickets').select('*').eq('user_id', ownerIdRef.current)
+        .order('created_at', { ascending: false }).limit(20),
+      supabase.from('bookings').select('id, dog_name, walker_name, created_at').eq('owner_id', ownerIdRef.current)
+        .order('created_at', { ascending: false }).limit(20),
+    ]);
+    setSupportTickets(tickets || []);
+    setSupportBookings(past || []);
+    setSupportLoading(false);
+  };
+
+  // bookingId facultatif : renseigné quand on arrive depuis une balade précise.
+  const openSupportTab = (bookingId) => {
+    setTab('support');
+    setSupportSent(false);
+    setSupportError('');
+    if (bookingId) setSupportForm(f => ({ ...f, bookingId, subject: 'Problème sur une balade' }));
+    loadSupport();
+  };
+
+  const sendSupportTicket = async () => {
+    const message = supportForm.message.trim();
+    if (!supportForm.subject) { setSupportError('Choisissez un sujet'); return; }
+    if (message.length < 10) { setSupportError('Décrivez votre demande en quelques mots'); return; }
+    setSupportError('');
+    setSupportSending(true);
+    const { error } = await supabase.from('support_tickets').insert({
+      user_id: ownerIdRef.current,
+      role: 'owner',
+      booking_id: supportForm.bookingId || null,
+      subject: supportForm.subject,
+      message,
+    });
+    setSupportSending(false);
+    if (error) { setSupportError("L'envoi a échoué — réessayez"); return; }
+    setSupportForm({ subject: '', bookingId: '', message: '' });
+    setSupportSent(true);
+    loadSupport();
+  };
+
   // Historique des balades passées — consultation en lecture seule
   const [historyBookings, setHistoryBookings] = useState([]);
+
+  // Aide & Support
+  const [openFaq, setOpenFaq] = useState(null);
+  const [supportTickets, setSupportTickets] = useState([]);
+  const [supportBookings, setSupportBookings] = useState([]);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportForm, setSupportForm] = useState({ subject: '', bookingId: '', message: '' });
+  const [supportSending, setSupportSending] = useState(false);
+  const [supportSent, setSupportSent] = useState(false);
+  const [supportError, setSupportError] = useState('');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyChat, setHistoryChat] = useState(null); // booking sélectionnée pour revoir sa conversation
   const [historyMessages, setHistoryMessages] = useState([]);
@@ -1036,6 +1110,119 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* AIDE & SUPPORT */}
+        {tab === 'support' && (
+          <div style={{ animation: 'slidein 0.3s ease' }}>
+            <div onClick={() => setTab('profile')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
+              ← Retour au profil
+            </div>
+
+            {/* Urgences — ce que l'app ne peut PAS faire à votre place */}
+            <div style={{ background: '#FFF0F0', border: '1.5px solid #FFD0D0', borderRadius: 16, padding: '16px 18px', marginBottom: 16 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#E24B4A', marginBottom: 8 }}>🚨 Urgence</div>
+              <div style={{ fontSize: 13, color: '#8A3B3A', lineHeight: 1.6 }}>
+                Chien non rendu, danger immédiat : appelez la <strong>police (17)</strong> sans attendre. Dogger ne peut pas intervenir sur place.<br />
+                Chien blessé ou malade : contactez un vétérinaire, puis prévenez-nous ci-dessous.<br />
+                La conversation, les photos et la dernière position connue de chaque balade restent consultables dans l'historique : ce sont vos preuves.
+              </div>
+            </div>
+
+            {/* FAQ */}
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>❓ Questions fréquentes</div>
+            <div style={{ background: '#fff', borderRadius: 16, padding: '4px 16px', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              {SUPPORT_FAQ.map((f, idx) => (
+                <div key={f.q} style={{ borderBottom: idx < SUPPORT_FAQ.length - 1 ? '1px solid #F0F0F0' : 'none' }}>
+                  <div onClick={() => setOpenFaq(o => (o === idx ? null : idx))}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 0', cursor: 'pointer' }}>
+                    <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#1A1A1A' }}>{f.q}</span>
+                    <span style={{ color: '#CCC', fontSize: 18 }}>{openFaq === idx ? '−' : '+'}</span>
+                  </div>
+                  {openFaq === idx && (
+                    <div style={{ fontSize: 13, color: '#666', lineHeight: 1.6, padding: '0 0 14px' }}>{f.a}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Formulaire de contact */}
+            <div style={{ background: '#fff', borderRadius: 16, padding: '20px', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 4 }}>✉️ Nous contacter</div>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 14, lineHeight: 1.5 }}>
+                Votre message et notre réponse restent dans « Mes demandes », juste en dessous.
+              </div>
+
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Sujet</div>
+              <select value={supportForm.subject}
+                onChange={e => setSupportForm(f => ({ ...f, subject: e.target.value }))}
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', background: '#FAFAFA', color: '#1A1A1A', marginBottom: 14, boxSizing: 'border-box' }}>
+                <option value="">Choisissez un sujet</option>
+                {SUPPORT_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Balade concernée (facultatif)</div>
+              <select value={supportForm.bookingId}
+                onChange={e => setSupportForm(f => ({ ...f, bookingId: e.target.value }))}
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', background: '#FAFAFA', color: '#1A1A1A', marginBottom: 14, boxSizing: 'border-box' }}>
+                <option value="">Aucune balade en particulier</option>
+                {supportBookings.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {new Date(b.created_at).toLocaleDateString('fr-FR')} · {b.dog_name || 'Chien'} · {b.walker_name || 'Promeneur'}
+                  </option>
+                ))}
+              </select>
+
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>Votre message</div>
+              <textarea value={supportForm.message}
+                onChange={e => setSupportForm(f => ({ ...f, message: e.target.value }))}
+                placeholder="Décrivez ce qui s'est passé, avec la date si vous l'avez."
+                style={{ width: '100%', minHeight: 110, padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E8E8E8', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', boxSizing: 'border-box', resize: 'vertical', marginBottom: 14 }} />
+
+              {supportError && (
+                <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 12 }}>
+                  ⚠️ {supportError}
+                </div>
+              )}
+              {supportSent && (
+                <div style={{ background: '#E1F5EE', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#0F6E56', fontWeight: 600, marginBottom: 12 }}>
+                  ✅ Message envoyé — la réponse apparaîtra dans « Mes demandes ».
+                </div>
+              )}
+
+              <button onClick={sendSupportTicket} disabled={supportSending}
+                style={{ width: '100%', padding: 14, background: supportSending ? '#A8D5C4' : 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: supportSending ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                {supportSending ? 'Envoi...' : 'Envoyer ma demande'}
+              </button>
+            </div>
+
+            {/* Mes demandes */}
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>📮 Mes demandes</div>
+            <div style={{ background: '#fff', borderRadius: 16, padding: '16px 18px', marginBottom: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              {supportLoading ? (
+                <div style={{ fontSize: 13, color: '#AAA', textAlign: 'center', padding: '12px 0' }}>Chargement...</div>
+              ) : supportTickets.length === 0 ? (
+                <div style={{ fontSize: 13, color: '#AAA', textAlign: 'center', padding: '12px 0' }}>Aucune demande envoyée pour l'instant.</div>
+              ) : supportTickets.map((t, idx) => (
+                <div key={t.id} style={{ paddingTop: idx === 0 ? 0 : 14, marginTop: idx === 0 ? 0 : 14, borderTop: idx === 0 ? 'none' : '1px solid #F0F0F0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{t.subject}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: t.admin_reply ? '#1D9E75' : '#B8860B', background: t.admin_reply ? '#E1F5EE' : '#FFF8E1', borderRadius: 10, padding: '3px 9px', whiteSpace: 'nowrap' }}>
+                      {t.admin_reply ? '✅ Répondu' : '⏳ En attente'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#AAA', marginBottom: 6 }}>{new Date(t.created_at).toLocaleDateString('fr-FR')}</div>
+                  <div style={{ fontSize: 13, color: '#666', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{t.message}</div>
+                  {t.admin_reply && (
+                    <div style={{ background: '#F8FAF9', borderLeft: '3px solid #1D9E75', borderRadius: 8, padding: '10px 12px', marginTop: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#1D9E75', marginBottom: 3 }}>💬 Réponse de Dogger</div>
+                      <div style={{ fontSize: 13, color: '#1A1A1A', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{t.admin_reply}</div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* SÉCURITÉ & MOT DE PASSE */}
         {tab === 'security' && (
           <div style={{ animation: 'slidein 0.3s ease' }}>
@@ -1191,7 +1378,7 @@ export default function Dashboard() {
                 { icon: '📋', label: 'Historique des balades', action: openHistoryTab },
                 { icon: '🔔', label: 'Notifications', action: () => {} },
                 { icon: '🔒', label: 'Sécurité & mot de passe', action: () => setTab('security') },
-                { icon: '❓', label: 'Aide & Support', action: () => {} },
+                { icon: '❓', label: 'Aide & Support', action: () => openSupportTab() },
               ].map((item, idx, arr) => (
                 <div key={item.label} onClick={item.action}
                   style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: idx < arr.length - 1 ? '1px solid #F0F0F0' : 'none', cursor: 'pointer' }}>
@@ -1337,6 +1524,10 @@ export default function Dashboard() {
               <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{historyChat.dog_name || 'Chien'} · {historyChat.walker_name || 'Promeneur'}</div>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>{new Date(historyChat.created_at).toLocaleDateString('fr-FR')} · historique</div>
             </div>
+            <button onClick={() => { const id = historyChat.id; setHistoryChat(null); openSupportTab(id); }}
+              style={{ marginLeft: 'auto', background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 12px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+              ⚠️ Signaler
+            </button>
           </div>
           <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
             {historyMsgLoading ? (

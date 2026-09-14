@@ -491,7 +491,6 @@ export default function Register() {
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>👤 {form.firstName} {form.lastName}</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📧 {form.email}</div>
               <div style={{ fontSize: 14, color: '#1A1A1A', marginBottom: 8 }}>📱 +33 {form.phone}</div>
-              <div style={{ fontSize: 14, color: '#1D9E75', marginBottom: 8 }}>🪪 Identité vérifiée ✅</div>
               <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
               {form.dogPhoto && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>

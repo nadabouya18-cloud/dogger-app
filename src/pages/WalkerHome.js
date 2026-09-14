@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
+import LegalScreen from '../Legal';
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
@@ -1788,6 +1789,7 @@ export default function WalkerHome() {
                { icon: '📱', label: 'Notifications' },
                { icon: '🔒', label: 'Sécurité & mot de passe', onClick: () => setTab('security') },
                { icon: '❓', label: 'Aide & Support', onClick: () => openSupportTab() },
+               { icon: '📄', label: 'Informations légales', onClick: () => setTab('legal') },
                { icon: '🚪', label: 'Se déconnecter', color: '#E24B4A', onClick: handleLogout },
              ].map((item, idx, arr) => (
                <div key={item.label} onClick={item.onClick}
@@ -1800,6 +1802,9 @@ export default function WalkerHome() {
            </div>
          </div>
        )}
+
+       {/* INFORMATIONS LÉGALES — textes partagés avec l'espace propriétaire */}
+       {tab === 'legal' && <LegalScreen onBack={() => setTab('profile')} />}
 
        {/* INFORMATIONS BANCAIRES — rien n'est collecté tant que les paiements
            en ligne ne sont pas branchés : pas d'IBAN stocké dans Dogger. */}

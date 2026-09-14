@@ -21,7 +21,7 @@ const SERVICES = [
 
 const STEPS = [
   { num: 1, title: 'Commandez en 3 taps',    desc: "Choisissez votre formule, adresse et heure." },
-  { num: 2, title: 'Un promeneur accepte',   desc: "Profil vérifié, réponse en moins de 90 secondes." },
+  { num: 2, title: 'Un promeneur accepte',   desc: "Vous voyez son profil et ses avis avant la balade." },
   { num: 3, title: 'Suivez en temps réel',   desc: "GPS live, photos pendant la balade." },
   { num: 4, title: 'Paiement automatique',   desc: "Débit en fin de balade. Notez votre promeneur." },
 ];
@@ -43,7 +43,7 @@ export default function Home() {
           Votre chien<br />mérite mieux
         </h1>
         <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, marginBottom: 32 }}>
-          Des promeneurs vérifiés, disponibles en moins de 5 minutes — suivi GPS en direct.
+          Des promeneurs près de chez vous, disponibles en quelques minutes — suivi GPS en direct.
         </p>
         <div style={{ display: 'flex', gap: 12 }}>
           <button onClick={() => navigate('/login?redirect=book')} style={{ flex: 1, padding: '14px 20px', background: '#fff', color: '#0F6E56', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>

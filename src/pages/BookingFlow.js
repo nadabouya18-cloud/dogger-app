@@ -22,6 +22,15 @@ const DURATIONS = [
 // pu répondre).
 const WALKER_RESPONSE_TIMEOUT_MS = 90000;
 
+// Distance max (km) pour qu'un promeneur apparaisse dans « Choisir mon
+// promeneur » — sinon un promeneur disponible mais très loin (position
+// connue) polluait une liste censée être "à proximité". Un promeneur dont
+// la position n'est pas connue reste affiché : on ne peut pas prouver qu'il
+// est loin, seulement qu'on ne sait pas où il est. Ne concerne que cette
+// liste — la recherche automatique garde tous les promeneurs disponibles,
+// triés du plus proche au plus loin.
+const MAX_PICKER_DISTANCE_KM = 15;
+
 // Durée minimale d'affichage de l'écran "Recherche en cours" pour la Balade :
 // même si un promeneur accepte tout de suite, on ne bascule pas
 // instantanément sur le suivi — ça paraissait suspect ("hyper rapide"),
@@ -166,6 +175,10 @@ export default function BookingFlow() {
   const [pickerError, setPickerError] = React.useState('');
   const [manualPickRefused, setManualPickRefused] = React.useState(false);
   const isManualPickRef = useRef(false);
+  // Infos d'affichage du promeneur contacté directement (choix manuel ou
+  // "Redemander à ce promeneur") — sert à afficher un écran d'attente honnête
+  // ("Demande envoyée à Untel") plutôt que la fausse animation de recherche.
+  const [pendingWalkerInfo, setPendingWalkerInfo] = React.useState(null);
 
   // Balade planifiée (📅) : la demande est envoyée à un vrai promeneur —
   // disponible à ce jour/cette heure d'après ses disponibilités déclarées —
@@ -653,6 +666,24 @@ export default function BookingFlow() {
     }
     matchTriedRef.current = [...matchTriedRef.current, chosen.id];
 
+    // Choix manuel (picker, ou "Redemander à ce promeneur") : on garde ses
+    // infos d'affichage pour l'écran d'attente ci-dessous. En automatique,
+    // le propriétaire ne sait pas encore qui sera contacté — rien à afficher.
+    if (isManualPickRef.current) {
+      const displayName = chosen.first_name
+        ? `${chosen.first_name}${chosen.last_name ? ' ' + chosen.last_name.charAt(0) + '.' : ''}`
+        : 'Ce promeneur';
+      setPendingWalkerInfo({
+        name: displayName,
+        photo_url: chosen.photo_url || null,
+        rating: chosen.rating != null ? chosen.rating : null,
+        total_walks: chosen.total_walks || 0,
+        verified: !!chosen.verified,
+      });
+    } else {
+      setPendingWalkerInfo(null);
+    }
+
     const svc = WALK_SERVICES.find(s => s.id === walkService);
     const price = Math.round((svc?.pricePerMin || 0.3) * walkDuration);
     const dog = userDogs.find(d => d.id === selectedDogs[0]);
@@ -871,7 +902,7 @@ export default function BookingFlow() {
 
     if (walkMode === 'later') {
       const pool = await fetchScheduledCandidates();
-      setPickerWalkers(pool);
+      setPickerWalkers(pool.filter(c => c.distanceKm == null || c.distanceKm <= MAX_PICKER_DISTANCE_KM));
       setPickerLoading(false);
       return;
     }
@@ -889,6 +920,7 @@ export default function BookingFlow() {
         ? distanceKm(userCoords.lat, userCoords.lng, c.lat, c.lng)
         : null,
     }));
+    pool = pool.filter(c => c.distanceKm == null || c.distanceKm <= MAX_PICKER_DISTANCE_KM);
     pool.sort((a, b) => {
       if (a.distanceKm != null && b.distanceKm != null) return a.distanceKm - b.distanceKm;
       if (a.distanceKm != null) return -1;
@@ -1088,6 +1120,33 @@ export default function BookingFlow() {
             </div>
           )}
         </div>
+      </div>
+    );
+  }
+
+  // ── DEMANDE ENVOYÉE À UN PROMENEUR CHOISI (BALADE) ──────────────────────────
+  // Choix manuel (picker ou "Redemander à ce promeneur") : on ne fait pas
+  // semblant de "chercher" puisque le propriétaire a déjà choisi qui
+  // contacter — on le dit honnêtement, avec la fiche du promeneur contacté.
+  if (searching && flowType === 'walk' && isManualPickRef.current && pendingWalkerInfo) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: 'sans-serif', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
+        {pendingWalkerInfo.photo_url
+          ? <img src={pendingWalkerInfo.photo_url} alt={pendingWalkerInfo.name} style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover', marginBottom: 16, border: '3px solid #E1F5EE' }} />
+          : <div style={{ width: 88, height: 88, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, marginBottom: 16 }}>🧑</div>
+        }
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A' }}>{pendingWalkerInfo.name}</h2>
+          {pendingWalkerInfo.verified && <span style={{ fontSize: 10, fontWeight: 700, color: '#1D9E75', background: '#E1F5EE', borderRadius: 10, padding: '2px 7px', whiteSpace: 'nowrap' }}>✅ Vérifié</span>}
+        </div>
+        {pendingWalkerInfo.rating != null && (
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 24 }}>⭐ {Number(pendingWalkerInfo.rating).toFixed(1)} · {pendingWalkerInfo.total_walks || 0} balade{pendingWalkerInfo.total_walks > 1 ? 's' : ''}</div>
+        )}
+        <div style={{ fontSize: 40, marginBottom: 16, animation: 'pulse 1.5s infinite' }}>📲</div>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: '#0F6E56', marginBottom: 8 }}>Demande envoyée</h3>
+        <p style={{ fontSize: 14, color: '#888', marginBottom: 28 }}>En attente de la confirmation de {pendingWalkerInfo.name}...</p>
+        <button onClick={cancelSearch} style={{ width: '100%', padding: 14, background: 'transparent', color: '#888', border: '1.5px solid #E8E8E8', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Annuler la demande</button>
       </div>
     );
   }

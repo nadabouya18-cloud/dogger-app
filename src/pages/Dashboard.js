@@ -17,6 +17,17 @@ const LIVE_STEPS = [
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
+// Libellé affiché dans la discussion pour chacun des 4 types de photo
+// "état des lieux" (remise/retour × promeneur/client) — même logique des
+// deux côtés et aux deux moments, comme demandé.
+const PHOTO_KIND_LABELS = {
+  handover_photo: '📸 Photo à la prise en charge (promeneur)',
+  owner_handover_photo: '📸 Photo à la remise (moi)',
+  return_photo: '📸 Photo au retour (promeneur)',
+  owner_return_photo: '📸 Photo à la récupération (moi)',
+};
+const PHOTO_KINDS = ['photo', 'handover_photo', 'owner_handover_photo', 'return_photo', 'owner_return_photo'];
+
 // Sans réponse du promeneur pendant ce délai, une balade planifiée est
 // traitée comme un refus silencieux — sinon elle resterait "en attente"
 // indéfiniment sans que le propriétaire puisse choisir quelqu'un d'autre.
@@ -37,7 +48,7 @@ const SUPPORT_FAQ = [
   { q: 'Comment annuler une balade ?', a: "Une balade planifiée encore en attente s'annule depuis « Vos balades planifiées », bouton « Annuler ». Une fois le promeneur en route, prévenez-le directement dans la discussion." },
   { q: "Le promeneur n'arrive pas", a: "Sa position en direct et la discussion sont sur l'écran « En direct ». Sans nouvelles, envoyez-lui un message : il le reçoit dans le même fil." },
   { q: "Je n'ai pas récupéré mon chien", a: "Ne confirmez pas la récupération et utilisez le signalement sur l'écran de suivi. Si la situation est urgente, appelez le 17 sans attendre. La conversation, les photos et la dernière position connue restent consultables." },
-  { q: 'À quoi servent les photos de début et de fin ?', a: "Le promeneur photographie votre chien à la prise en charge et au retour. Sans ces photos, la balade ne peut ni démarrer ni se terminer. Elles vous sont montrées avant chaque confirmation." },
+  { q: 'À quoi servent les photos de début et de fin ?', a: "À la remise comme au retour, vous et le promeneur photographiez chacun votre chien au même moment — deux preuves qui se recoupent, à chaque fois. Sans ces photos, la balade ne peut ni démarrer ni se terminer. Elles vous sont montrées avant chaque confirmation." },
   { q: 'Comment noter mon promeneur ?', a: "Juste après avoir confirmé la récupération de votre chien, un écran propose de le noter de 1 à 5 étoiles (ou « Plus tard »). C'est cette note qui alimente sa note publique." },
   { q: 'Comment fonctionne une balade planifiée ?', a: "Vous choisissez la date, l'heure puis un promeneur disponible sur ce créneau. Il doit accepter : ce n'est pas automatique. S'il refuse ou ne répond pas, vous êtes prévenu et choisissez quelqu'un d'autre." },
   { q: 'Quand suis-je débité ?', a: "Le paiement en ligne n'est pas encore actif dans cette version : le montant affiché est indicatif." },
@@ -88,6 +99,8 @@ export default function Dashboard() {
   const [showCancelWalk, setShowCancelWalk] = useState(false);
   const [cancelWalkReason, setCancelWalkReason] = useState('');
   const [confirmingHandover, setConfirmingHandover] = useState(false);
+  const [sendingOwnerHandoverPhoto, setSendingOwnerHandoverPhoto] = useState(false);
+  const [sendingOwnerReturnPhoto, setSendingOwnerReturnPhoto] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -405,6 +418,34 @@ export default function Dashboard() {
     }
   };
 
+  // Le client aussi photographie son chien au moment de la remise, comme le
+  // fait déjà le promeneur de son côté — les deux photos, prises au même
+  // instant par deux téléphones différents, se recoupent comme preuve.
+  // Même technique que côté promeneur : l'attribut "capture" force l'appareil
+  // photo (pas de pioche dans une ancienne photo), et l'envoi de la photo
+  // vaut confirmation de la remise.
+  const confirmHandoverWithPhoto = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !activeBooking?.id || !ownerIdRef.current) return;
+    setSendingOwnerHandoverPhoto(true);
+    try {
+      const path = `${activeBooking.id}/${Date.now()}-${Math.round(Math.random() * 1e6)}.jpg`;
+      const { error: uploadError } = await supabase.storage.from('walk-photos').upload(path, file, {
+        contentType: file.type || 'image/jpeg',
+      });
+      if (uploadError) { console.error(uploadError); return; }
+      const { data: pub } = supabase.storage.from('walk-photos').getPublicUrl(path);
+      await supabase.from('booking_messages').insert({
+        booking_id: activeBooking.id, sender_id: ownerIdRef.current, kind: 'owner_handover_photo', image_url: pub.publicUrl,
+      });
+      loadMessages();
+      await confirmHandoverReal();
+    } finally {
+      setSendingOwnerHandoverPhoto(false);
+    }
+  };
+
   const cancelActiveWalk = async () => {
     if (!activeBooking?.id || !cancelWalkReason) return;
     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', activeBooking.id);
@@ -435,6 +476,34 @@ export default function Dashboard() {
       lastBookingStatusRef.current = null;
     } finally {
       setConfirmingHandover(false);
+    }
+  };
+
+  // Même logique qu'à la remise, appliquée au retour : le client photographie
+  // lui aussi son chien au moment où il le récupère, en plus de la photo déjà
+  // prise par le promeneur juste avant — encore deux preuves prises au même
+  // instant, des deux côtés. Ne concerne que le retour normal (le bouton
+  // "tout va bien" d'un signalement résolu continue d'utiliser
+  // confirmHandoverReal->confirmReturnReal directement, sans photo).
+  const confirmReturnWithPhoto = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !activeBooking?.id || !ownerIdRef.current) return;
+    setSendingOwnerReturnPhoto(true);
+    try {
+      const path = `${activeBooking.id}/${Date.now()}-${Math.round(Math.random() * 1e6)}.jpg`;
+      const { error: uploadError } = await supabase.storage.from('walk-photos').upload(path, file, {
+        contentType: file.type || 'image/jpeg',
+      });
+      if (uploadError) { console.error(uploadError); return; }
+      const { data: pub } = supabase.storage.from('walk-photos').getPublicUrl(path);
+      await supabase.from('booking_messages').insert({
+        booking_id: activeBooking.id, sender_id: ownerIdRef.current, kind: 'owner_return_photo', image_url: pub.publicUrl,
+      });
+      loadMessages();
+      await confirmReturnReal();
+    } finally {
+      setSendingOwnerReturnPhoto(false);
     }
   };
 
@@ -838,6 +907,11 @@ export default function Dashboard() {
   // et au retour — pour vérifier avant de confirmer, comme chez Yego.
   const handoverPhoto = [...messages].reverse().find(m => m.kind === 'handover_photo');
   const returnPhoto = [...messages].reverse().find(m => m.kind === 'return_photo');
+  // Photo prise par le client lui-même à la remise (voir confirmHandoverWithPhoto) —
+  // recoupée avec celle du promeneur pour prouver que les deux ont bien été prises au même instant.
+  const ownerHandoverPhoto = [...messages].reverse().find(m => m.kind === 'owner_handover_photo');
+  // Même chose au retour (voir confirmReturnWithPhoto).
+  const ownerReturnPhoto = [...messages].reverse().find(m => m.kind === 'owner_return_photo');
 
   if (loading) {
     return (
@@ -1129,10 +1203,13 @@ export default function Dashboard() {
                       <div style={{ width: `${Math.min(100, (walkTime / ((activeBooking.duration || 1) * 60)) * 100)}%`, background: '#1D9E75', borderRadius: 10, height: 6, transition: 'width 1s linear' }} />
                     </div>
                   )}
-                  {handoverPhoto && ['walking', 'walker_returning', 'incident'].includes(activeBooking.status) && (
+                  {(handoverPhoto || ownerHandoverPhoto) && ['walking', 'walker_returning', 'incident'].includes(activeBooking.status) && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#F8FAF9', borderRadius: 12, padding: '8px 10px', marginBottom: 12 }}>
-                      <img src={handoverPhoto.image_url} alt="prise en charge" style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover' }} />
-                      <div style={{ fontSize: 12, color: '#555' }}>📸 Photo prise à la remise de {activeBooking.dog_name || 'votre chien'}</div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {handoverPhoto && <img src={handoverPhoto.image_url} alt="prise en charge côté promeneur" style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover' }} />}
+                        {ownerHandoverPhoto && <img src={ownerHandoverPhoto.image_url} alt="prise en charge côté client" style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover' }} />}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#555' }}>📸 Photos prises à la remise de {activeBooking.dog_name || 'votre chien'} {handoverPhoto && ownerHandoverPhoto ? '(des deux côtés)' : ''}</div>
                     </div>
                   )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1153,12 +1230,13 @@ export default function Dashboard() {
                 {activeBooking.status === 'walker_arrived' && (
                   <div style={{ background: '#E1F5EE', borderRadius: 16, padding: '16px', marginBottom: 12, textAlign: 'center' }}>
                     <div style={{ fontSize: 14, color: '#0F6E56', fontWeight: 600, marginBottom: 12 }}>
-                      🐾 {activeBooking.walker_name || 'Le promeneur'} est arrivé ! Confirmez lui avoir remis {activeBooking.dog_name || 'votre chien'}.
+                      🐾 {activeBooking.walker_name || 'Le promeneur'} est arrivé ! Prenez {activeBooking.dog_name || 'votre chien'} en photo au moment de le lui remettre — ça confirme la remise.
                     </div>
-                    <button onClick={confirmHandoverReal} disabled={confirmingHandover}
-                      style={{ width: '100%', padding: 15, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: confirmingHandover ? 'default' : 'pointer', opacity: confirmingHandover ? 0.7 : 1 }}>
-                      🐾 Confirmer la remise de mon chien
+                    <button onClick={() => document.getElementById('ownerHandoverPhotoInput').click()} disabled={confirmingHandover || sendingOwnerHandoverPhoto}
+                      style={{ width: '100%', padding: 15, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: (confirmingHandover || sendingOwnerHandoverPhoto) ? 'default' : 'pointer', opacity: (confirmingHandover || sendingOwnerHandoverPhoto) ? 0.7 : 1 }}>
+                      {sendingOwnerHandoverPhoto ? 'Envoi de la photo...' : `📸 Photographier ${activeBooking.dog_name || 'mon chien'} et confirmer`}
                     </button>
+                    <input id="ownerHandoverPhotoInput" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={confirmHandoverWithPhoto} />
                   </div>
                 )}
 
@@ -1173,10 +1251,11 @@ export default function Dashboard() {
                         <img src={returnPhoto.image_url} alt="retour du chien" style={{ width: 140, height: 140, borderRadius: 14, objectFit: 'cover' }} />
                       </div>
                     )}
-                    <button onClick={confirmReturnReal} disabled={confirmingHandover}
-                      style={{ width: '100%', padding: 15, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: confirmingHandover ? 'default' : 'pointer', opacity: confirmingHandover ? 0.7 : 1, marginBottom: 10 }}>
-                      ✅ J'ai bien récupéré mon chien
+                    <button onClick={() => document.getElementById('ownerReturnPhotoInput').click()} disabled={confirmingHandover || sendingOwnerReturnPhoto}
+                      style={{ width: '100%', padding: 15, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: (confirmingHandover || sendingOwnerReturnPhoto) ? 'default' : 'pointer', opacity: (confirmingHandover || sendingOwnerReturnPhoto) ? 0.7 : 1, marginBottom: 10 }}>
+                      {sendingOwnerReturnPhoto ? 'Envoi de la photo...' : `📸 Photographier ${activeBooking.dog_name || 'mon chien'} et confirmer la récupération`}
                     </button>
+                    <input id="ownerReturnPhotoInput" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={confirmReturnWithPhoto} />
                     <button onClick={reportIncident} disabled={confirmingHandover}
                       style={{ width: '100%', padding: 13, background: 'transparent', color: '#E24B4A', border: '1.5px solid #E24B4A', borderRadius: 14, fontSize: 13, fontWeight: 600, cursor: confirmingHandover ? 'default' : 'pointer', fontFamily: 'inherit' }}>
                       ⚠️ Je n'ai pas récupéré mon chien
@@ -1771,12 +1850,12 @@ export default function Dashboard() {
               if (msg.kind === 'event') {
                 return <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>;
               }
-              if (msg.kind === 'photo' || msg.kind === 'handover_photo' || msg.kind === 'return_photo') {
+              if (PHOTO_KINDS.includes(msg.kind)) {
                 return (
                   <div key={msg.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start' }}>
                     {msg.kind !== 'photo' && (
                       <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textAlign: mine ? 'right' : 'left' }}>
-                        {msg.kind === 'handover_photo' ? '📸 Photo à la prise en charge' : '📸 Photo au retour'}
+                        {PHOTO_KIND_LABELS[msg.kind]}
                       </div>
                     )}
                     <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
@@ -1852,12 +1931,12 @@ export default function Dashboard() {
               if (msg.kind === 'event') {
                 return <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>;
               }
-              if (msg.kind === 'photo' || msg.kind === 'handover_photo' || msg.kind === 'return_photo') {
+              if (PHOTO_KINDS.includes(msg.kind)) {
                 return (
                   <div key={msg.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start' }}>
                     {msg.kind !== 'photo' && (
                       <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textAlign: mine ? 'right' : 'left' }}>
-                        {msg.kind === 'handover_photo' ? '📸 Photo à la prise en charge' : '📸 Photo au retour'}
+                        {PHOTO_KIND_LABELS[msg.kind]}
                       </div>
                     )}
                     <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />

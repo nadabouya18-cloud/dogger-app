@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
+import VerificationScreen, { fetchMyVerification, VerifBadge } from '../Verification';
 
 const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
 
@@ -89,6 +90,22 @@ export default function Dashboard() {
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [submittingRating, setSubmittingRating] = useState(false);
 
+  // Ouverture directe de l'écran de vérification depuis une autre page
+  // (?tab=verify), typiquement quand une réservation a été bloquée.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') === 'verify') openVerifyTab();
+  }, []);
+
+  // Statut de vérification d'identité (aucun document n'est stocké côté app).
+  const openVerifyTab = async () => {
+    setTab('verify');
+    if (!ownerIdRef.current) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) ownerIdRef.current = session.user.id;
+    }
+    setVerification(await fetchMyVerification(ownerIdRef.current));
+  };
+
   // Aide & Support. Les demandes vivent dans support_tickets : chacun ne voit
   // que les siennes (RLS), et la réponse écrite côté Supabase revient dans
   // "Mes demandes" — pas d'espace admin dans l'app.
@@ -142,6 +159,9 @@ export default function Dashboard() {
   // Historique des balades passées — consultation en lecture seule
   const [historyBookings, setHistoryBookings] = useState([]);
 
+  // Vérification d'identité
+  const [verification, setVerification] = useState({ status: 'none' });
+
   // Aide & Support
   const [openFaq, setOpenFaq] = useState(null);
   const [supportTickets, setSupportTickets] = useState([]);
@@ -156,6 +176,11 @@ export default function Dashboard() {
   const [historyMessages, setHistoryMessages] = useState([]);
   const [historyMsgLoading, setHistoryMsgLoading] = useState(false);
   const [historyInput, setHistoryInput] = useState('');
+
+  // Promeneurs favoris — enregistrés depuis l'historique, pour les
+  // recontacter/rebooker rapidement sans reparcourir tout l'historique.
+  const [favorites, setFavorites] = useState([]);
+  const [favoritesLoading, setFavoritesLoading] = useState(false);
 
   // Balades planifiées à l'avance : envoyées à un vrai promeneur qui doit
   // les confirmer — suivies ici, indépendamment de la balade "en direct".
@@ -438,6 +463,42 @@ export default function Dashboard() {
     setHistoryLoading(false);
   };
 
+  const openFavoritesTab = async () => {
+    setTab('favorites');
+    if (!ownerIdRef.current) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) ownerIdRef.current = session.user.id;
+    }
+    if (!ownerIdRef.current) return;
+    setFavoritesLoading(true);
+    const { data } = await supabase
+      .from('favorite_walkers').select('*').eq('owner_id', ownerIdRef.current)
+      .order('created_at', { ascending: false });
+    setFavorites(data || []);
+    setFavoritesLoading(false);
+  };
+
+  // Ajouter/retirer un promeneur des favoris — nom/note/nb de balades
+  // enregistrés en instantané au moment du favori (même logique de
+  // dénormalisation que le reste de l'app, pour ne pas avoir à ouvrir un
+  // accès en lecture direct sur profiles/walker_profiles depuis le client).
+  const toggleFavorite = async (walkerId, walkerName, walkerRating, walkerTotalWalks) => {
+    if (!walkerId || !ownerIdRef.current) return;
+    const existing = favorites.find(f => f.walker_id === walkerId);
+    if (existing) {
+      setFavorites(favs => favs.filter(f => f.walker_id !== walkerId));
+      await supabase.from('favorite_walkers').delete().eq('id', existing.id);
+      return;
+    }
+    const tempId = `temp-${walkerId}`;
+    setFavorites(favs => [{ id: tempId, walker_id: walkerId, walker_name: walkerName, walker_rating: walkerRating, walker_total_walks: walkerTotalWalks, created_at: new Date().toISOString() }, ...favs]);
+    const { data } = await supabase.from('favorite_walkers').insert({
+      owner_id: ownerIdRef.current, walker_id: walkerId, walker_name: walkerName,
+      walker_rating: walkerRating, walker_total_walks: walkerTotalWalks,
+    }).select().single();
+    if (data) setFavorites(favs => favs.map(f => f.id === tempId ? data : f));
+  };
+
   const openHistoryChat = async (booking) => {
     setHistoryChat(booking);
     setHistoryMsgLoading(true);
@@ -495,6 +556,11 @@ export default function Dashboard() {
           const distinctWalkers = new Set(completedBookings.map(b => b.walker_name).filter(Boolean)).size;
           setOwnerStats({ walks: completedBookings.length, spent: Math.round(totalSpent), walkers: distinctWalkers });
         }
+
+        const { data: favData } = await supabase
+          .from('favorite_walkers').select('*').eq('owner_id', session.user.id)
+          .order('created_at', { ascending: false });
+        if (favData) setFavorites(favData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -671,6 +737,7 @@ export default function Dashboard() {
 
   const dogName = activeBooking?.dog_name || dogs[0]?.name || 'Votre chien';
   const photoUrl = newOwnerPhoto || profile?.photo_url;
+  const favoriteWalkerIds = new Set(favorites.map(f => f.walker_id));
 
   // Photos "état des lieux" prises par le promeneur — à la prise en charge
   // et au retour — pour vérifier avant de confirmer, comme chez Yego.
@@ -1099,16 +1166,68 @@ export default function Dashboard() {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
                     <div style={{ fontSize: 12, color: '#1D9E75', fontWeight: 600 }}>💬 Voir la conversation</div>
                     {b.status === 'completed' && b.walker_id && (
-                      <button onClick={(e) => { e.stopPropagation(); navigate('/book/walk', { state: { preferredWalkerId: b.walker_id, preferredWalkerName: b.walker_name } }); }}
-                        style={{ padding: '7px 12px', background: '#FFF8E1', color: '#B8860B', border: '1.5px solid #F0C24A', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-                        🔁 Rebooker
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button onClick={(e) => { e.stopPropagation(); toggleFavorite(b.walker_id, b.walker_name, b.walker_rating, b.walker_total_walks); }}
+                          title={favoriteWalkerIds.has(b.walker_id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                          style={{ width: 32, height: 32, borderRadius: '50%', background: favoriteWalkerIds.has(b.walker_id) ? '#FFF3D6' : '#F5F5F5', border: favoriteWalkerIds.has(b.walker_id) ? '1.5px solid #F0C24A' : '1.5px solid #E8E8E8', fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontFamily: 'inherit' }}>
+                          {favoriteWalkerIds.has(b.walker_id) ? '⭐' : '☆'}
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); navigate('/book/walk', { state: { preferredWalkerId: b.walker_id, preferredWalkerName: b.walker_name } }); }}
+                          style={{ padding: '7px 12px', background: '#FFF8E1', color: '#B8860B', border: '1.5px solid #F0C24A', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          🔁 Rebooker
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
+        )}
+
+        {/* PROMENEURS FAVORIS */}
+        {tab === 'favorites' && (
+          <div style={{ animation: 'slidein 0.3s ease' }}>
+            <div onClick={() => setTab('profile')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
+              ← Retour au profil
+            </div>
+            {favoritesLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#888', fontSize: 14 }}>Chargement...</div>
+            ) : favorites.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
+                <p style={{ fontSize: 14, color: '#888', marginBottom: 4 }}>Aucun promeneur favori pour l'instant</p>
+                <p style={{ fontSize: 12, color: '#AAA' }}>Ajoutez-en un depuis une balade terminée dans « Historique des balades » (bouton ☆).</p>
+              </div>
+            ) : favorites.map(f => (
+              <div key={f.id} style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{f.walker_name || 'Promeneur'}</div>
+                  <div style={{ fontSize: 12, color: '#888' }}>
+                    {f.walker_rating != null ? `⭐ ${f.walker_rating}` : 'Sans note pour l\'instant'}
+                    {f.walker_total_walks != null ? ` · ${f.walker_total_walks} balade${f.walker_total_walks > 1 ? 's' : ''}` : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <button onClick={() => toggleFavorite(f.walker_id, f.walker_name, f.walker_rating, f.walker_total_walks)}
+                    title="Retirer des favoris"
+                    style={{ width: 32, height: 32, borderRadius: '50%', background: '#FFF3D6', border: '1.5px solid #F0C24A', fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}>
+                    ⭐
+                  </button>
+                  <button onClick={() => navigate('/book/walk', { state: { preferredWalkerId: f.walker_id, preferredWalkerName: f.walker_name } })}
+                    style={{ padding: '9px 14px', background: '#FFF8E1', color: '#B8860B', border: '1.5px solid #F0C24A', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                    🔁 Rebooker
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* VÉRIFICATION D'IDENTITÉ */}
+        {tab === 'verify' && (
+          <VerificationScreen userId={ownerIdRef.current} verification={verification}
+            onChange={setVerification} onBack={() => setTab('profile')} />
         )}
 
         {/* INFORMATIONS LÉGALES — textes partagés avec l'espace promeneur */}
@@ -1380,15 +1499,18 @@ export default function Dashboard() {
               {[
                 { icon: '🐾', label: 'Mes chiens', action: () => setTab('dogs') },
                 { icon: '📋', label: 'Historique des balades', action: openHistoryTab },
+                { icon: '⭐', label: 'Mes promeneurs favoris', action: openFavoritesTab },
                 { icon: '🔔', label: 'Notifications', action: () => {} },
                 { icon: '🔒', label: 'Sécurité & mot de passe', action: () => setTab('security') },
                 { icon: '❓', label: 'Aide & Support', action: () => openSupportTab() },
+                { icon: '🪪', label: "Vérification d'identité", action: openVerifyTab, badge: verification.status },
                 { icon: '📄', label: 'Informations légales', action: () => setTab('legal') },
               ].map((item, idx, arr) => (
                 <div key={item.label} onClick={item.action}
                   style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: idx < arr.length - 1 ? '1px solid #F0F0F0' : 'none', cursor: 'pointer' }}>
                   <span style={{ fontSize: 20 }}>{item.icon}</span>
                   <span style={{ fontSize: 15, color: '#1A1A1A', fontWeight: 500, flex: 1 }}>{item.label}</span>
+                  {item.badge && <VerifBadge status={item.badge} />}
                   <span style={{ color: '#CCC', fontSize: 18 }}>›</span>
                 </div>
               ))}

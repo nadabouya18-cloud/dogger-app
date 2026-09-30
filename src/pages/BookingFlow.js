@@ -10,6 +10,12 @@ const WALK_SERVICES = [
   { id: 'parc',   icon: '🌳',  name: 'Dogger Parc',      desc: 'Session de jeu en parc canin', pricePerMin: 0.35, popular: false },
 ];
 
+// Promener plusieurs chiens à la fois donne plus de travail au promeneur —
+// le tarif ne doit donc pas rester identique à celui d'un seul chien.
+// +50% par chien supplémentaire (2 chiens = 1.5x, 3 chiens = 2x, etc.),
+// une majoration classique chez les apps de balade de chiens.
+const dogPriceMultiplier = (numDogs) => 1 + 0.5 * Math.max(0, (numDogs || 1) - 1);
+
 const DURATIONS = [
   { id: 15, label: '15 min' }, { id: 30, label: '30 min' },
   { id: 45, label: '45 min' }, { id: 60, label: '1h' },
@@ -695,7 +701,7 @@ export default function BookingFlow() {
     }
 
     const svc = WALK_SERVICES.find(s => s.id === walkService);
-    const price = Math.round((svc?.pricePerMin || 0.3) * walkDuration);
+    const price = Math.round((svc?.pricePerMin || 0.3) * walkDuration * dogPriceMultiplier(selectedDogs.length));
     const dog = userDogs.find(d => d.id === selectedDogs[0]);
 
     const { data: profileData } = await supabase
@@ -832,7 +838,7 @@ export default function BookingFlow() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setScheduledSending(false); navigate('/login'); return; }
     const svc = WALK_SERVICES.find(s => s.id === walkService);
-    const price = Math.round((svc?.pricePerMin || 0.3) * walkDuration);
+    const price = Math.round((svc?.pricePerMin || 0.3) * walkDuration * dogPriceMultiplier(selectedDogs.length));
     const dog = userDogs.find(d => d.id === selectedDogs[0]);
     const { data: profileData } = await supabase
       .from('profiles').select('first_name,last_name,photo_url').eq('id', session.user.id).single();
@@ -1664,7 +1670,7 @@ export default function BookingFlow() {
                       <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>{s.name}</div>
                       <div style={{ fontSize: 12, color: '#888' }}>{s.desc}</div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75' }}>dès {Math.round(s.pricePerMin * 15)}€</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1D9E75' }}>dès {Math.round(s.pricePerMin * 15 * dogPriceMultiplier(selectedDogs.length))}€</div>
                   </div>
                 ))}
               </div>
@@ -1680,7 +1686,8 @@ export default function BookingFlow() {
               )}
               {walkSelectedService && (
                 <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '12px 16px', fontSize: 14, color: '#0F6E56', fontWeight: 600 }}>
-                  Prix estimé : {Math.round(walkSelectedService.pricePerMin * walkDuration)}€
+                  Prix estimé : {Math.round(walkSelectedService.pricePerMin * walkDuration * dogPriceMultiplier(selectedDogs.length))}€
+                  {selectedDogs.length > 1 && <span style={{ fontWeight: 400, fontSize: 12, color: '#5A8C79' }}> (+50% par chien en plus, {selectedDogs.length} chiens)</span>}
                 </div>
               )}
             </div>
@@ -1712,8 +1719,8 @@ export default function BookingFlow() {
                 {walkInstructions && <div style={{ fontSize: 14, color: '#555', marginBottom: 6 }}>📝 {walkInstructions}</div>}
                 <div style={{ height: 1, background: '#EBEBEB', margin: '10px 0' }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 15, color: '#555' }}>Total estimé</span>
-                  <span style={{ fontSize: 20, fontWeight: 700, color: '#1D9E75' }}>{Math.round(walkSelectedService.pricePerMin * walkDuration)}€</span>
+                  <span style={{ fontSize: 15, color: '#555' }}>Total estimé{selectedDogs.length > 1 ? ` (${selectedDogs.length} chiens)` : ''}</span>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: '#1D9E75' }}>{Math.round(walkSelectedService.pricePerMin * walkDuration * dogPriceMultiplier(selectedDogs.length))}€</span>
                 </div>
               </div>
               <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#888', marginBottom: 20 }}>💳 Votre carte sera débitée uniquement à la fin de la prestation.</div>

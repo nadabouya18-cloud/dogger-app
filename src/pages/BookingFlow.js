@@ -941,10 +941,49 @@ export default function BookingFlow() {
     setPickerLoading(false);
   };
 
-  const chooseWalkerManually = (w) => {
+  // Revérifie sa disponibilité réelle au moment précis où on clique
+  // "Demander" — pas seulement au moment où la liste s'est ouverte. La
+  // liste peut être restée affichée un moment (le propriétaire hésite,
+  // compare les profils...) et le promeneur peut être devenu indisponible
+  // entre-temps (il s'est déclaré indisponible, ou vient d'accepter une
+  // autre demande) : sans cette revérification, une demande partait quand
+  // même vers quelqu'un qui n'était plus là pour la recevoir, et le
+  // propriétaire se retrouvait à attendre une confirmation qui n'arriverait
+  // jamais jusqu'au délai d'expiration.
+  const chooseWalkerManually = async (w) => {
+    setPickerError('');
+    setPickerLoading(true);
+    if (walkMode === 'later') {
+      const pool = await fetchScheduledCandidates();
+      const stillAvailable = pool.find(c => c.id === w.id);
+      setPickerLoading(false);
+      if (!stillAvailable) {
+        setPickerWalkers(pool.filter(c => !matchTriedRef.current.includes(c.id) && (c.distanceKm == null || c.distanceKm <= MAX_PICKER_DISTANCE_KM)));
+        setPickerError(`${w.first_name || 'Ce promeneur'} n'est plus disponible pour ce créneau — choisissez quelqu'un d'autre.`);
+        return;
+      }
+      setShowWalkerPicker(false);
+      createScheduledBooking(stillAvailable);
+      return;
+    }
+    const { data: candidates, error: rpcError } = await supabase.rpc('get_available_walkers');
+    if (rpcError) { setPickerLoading(false); setPickerError('Impossible de vérifier sa disponibilité — réessayez.'); return; }
+    const stillAvailable = (candidates || []).find(c => c.id === w.id);
+    setPickerLoading(false);
+    if (!stillAvailable) {
+      let pool = (candidates || []).filter(c => !matchTriedRef.current.includes(c.id));
+      pool = pool.map(c => ({
+        ...c,
+        distanceKm: (userCoords && c.lat != null && c.lng != null)
+          ? distanceKm(userCoords.lat, userCoords.lng, c.lat, c.lng)
+          : null,
+      })).filter(c => c.distanceKm == null || c.distanceKm <= MAX_PICKER_DISTANCE_KM);
+      setPickerWalkers(pool);
+      setPickerError(`${w.first_name || 'Ce promeneur'} vient de devenir indisponible — choisissez quelqu'un d'autre dans la liste.`);
+      return;
+    }
     setShowWalkerPicker(false);
-    if (walkMode === 'later') { createScheduledBooking(w); return; }
-    startRealWalkSearch(w);
+    startRealWalkSearch(stillAvailable);
   };
 
   // Rebooker avec un promeneur précis venu de l'historique : on vérifie sa

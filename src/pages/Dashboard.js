@@ -1000,7 +1000,10 @@ export default function Dashboard() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
                     <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🧑</div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>{activeBooking.walker_name || 'Promeneur'}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>{activeBooking.walker_name || 'Promeneur'}</div>
+                        {activeBooking.walker_verified && <span style={{ fontSize: 10, fontWeight: 700, color: '#1D9E75', background: '#E1F5EE', borderRadius: 10, padding: '2px 7px', whiteSpace: 'nowrap' }}>✅ Vérifié</span>}
+                      </div>
                       <div style={{ fontSize: 13, color: '#1D9E75' }}>
                         {activeBooking.walker_rating != null ? `⭐ ${activeBooking.walker_rating} · ${activeBooking.walker_total_walks || 0} balades` : 'Nouveau promeneur'}
                       </div>

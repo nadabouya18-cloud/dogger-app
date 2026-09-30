@@ -901,6 +901,33 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* Promeneurs favoris — accès rapide depuis l'accueil, sans passer par le profil */}
+            {favorites.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>⭐ Vos promeneurs favoris</h3>
+                  <span onClick={openFavoritesTab} style={{ fontSize: 12, color: '#1D9E75', fontWeight: 700, cursor: 'pointer' }}>Voir tout</span>
+                </div>
+                <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+                  {favorites.map(f => (
+                    <div key={f.id} style={{ minWidth: 150, background: '#fff', borderRadius: 16, padding: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', flexShrink: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>🧑</div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.walker_name || 'Promeneur'}</div>
+                          <div style={{ fontSize: 11, color: '#888' }}>{f.walker_rating != null ? `⭐ ${f.walker_rating}` : '—'} · {f.walker_total_walks || 0} balades</div>
+                        </div>
+                      </div>
+                      <button onClick={() => navigate('/book/walk', { state: { preferredWalkerId: f.walker_id, preferredWalkerName: f.walker_name } })}
+                        style={{ width: '100%', padding: '8px', background: '#FFF8E1', color: '#B8860B', border: '1.5px solid #F0C24A', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        🔁 Rebooker
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Mes chiens */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>Mes chiens</h3>

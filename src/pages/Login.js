@@ -6,25 +6,13 @@ export default function Login() {
  const navigate = useNavigate();
  const [form, setForm] = useState({ email: '', password: '' });
  const [error, setError] = useState('');
- const [wrongDoor, setWrongDoor] = useState(null);
  const [loading, setLoading] = useState(false);
 
  const params = new URLSearchParams(window.location.search);
  const redirect = params.get('redirect') || 'dashboard';
  const fromBooking = redirect === 'book';
- const fromWalker = redirect === 'walker';
 
- const update = (field, value) => {
-   setForm(f => ({ ...f, [field]: value }));
-   if (wrongDoor) { setWrongDoor(null); setError(''); }
- };
-
- // Bascule vers l'autre porte d'entrée sans quitter l'écran de connexion.
- const switchDoor = (target) => {
-   setWrongDoor(null);
-   setError('');
-   navigate(target === 'walker' ? '/login?redirect=walker' : '/login?redirect=book');
- };
+ const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
  const handleLogin = async () => {
    if (!form.email || !form.email.includes('@')) { setError('Email invalide'); return; }
@@ -47,28 +35,17 @@ export default function Login() {
        return;
      }
 
-     // Un compte promeneur a une ligne dans walker_profiles. Les deux portes
-     // d'entrée sont étanches : on refuse la connexion (et on déconnecte
-     // aussitôt) si le compte ne correspond pas à la porte utilisée.
+     // Un compte promeneur a une ligne dans walker_profiles : on l'envoie
+     // toujours vers son espace promeneur, quel que soit le paramètre redirect.
      const userId = signInData?.user?.id;
-     const { data: walkerProfile } = await supabase
-       .from('walker_profiles').select('id').eq('id', userId).maybeSingle();
-     const isWalker = !!walkerProfile;
-
-     if (isWalker && !fromWalker) {
-       await supabase.auth.signOut();
-       setWrongDoor('walker');
-       setError('Ce compte est un compte promeneur — il ne peut pas commander de balade.');
-       return;
+     let destination = '/' + redirect;
+     if (userId) {
+       const { data: walkerProfile } = await supabase
+         .from('walker_profiles').select('id').eq('id', userId).maybeSingle();
+       if (walkerProfile) destination = '/walker';
+       else if (redirect === 'walker') destination = '/register-walker';
      }
-     if (!isWalker && fromWalker) {
-       await supabase.auth.signOut();
-       setWrongDoor('owner');
-       setError('Ce compte est un compte propriétaire — il n\'a pas d\'espace promeneur.');
-       return;
-     }
-
-     navigate('/' + redirect);
+     navigate(destination);
    } catch (e) {
      setError('Une erreur est survenue — réessayez');
    } finally {
@@ -97,9 +74,7 @@ export default function Login() {
        <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)' }}>
          {fromBooking
            ? 'Connectez-vous pour commander une balade 🐾'
-           : fromWalker
-             ? 'Connectez-vous à votre espace promeneur 🚶'
-             : 'Connectez-vous à votre compte Dogger'}
+           : 'Connectez-vous à votre compte Dogger'}
        </p>
      </div>
 
@@ -108,12 +83,6 @@ export default function Login() {
        {fromBooking && (
          <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#0F6E56', fontWeight: 500 }}>
            🐾 Connectez-vous pour accéder au booking — ou créez un compte si vous n'en avez pas encore.
-         </div>
-       )}
-
-       {fromWalker && (
-         <div style={{ background: '#E1F5EE', borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#0F6E56', fontWeight: 500 }}>
-           🚶 Connectez-vous à votre espace promeneur — ou créez un compte promeneur si vous n'en avez pas encore.
          </div>
        )}
 
@@ -132,18 +101,6 @@ export default function Login() {
        {error && (
          <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>
            ⚠️ {error}
-           {wrongDoor === 'walker' && (
-             <button onClick={() => switchDoor('walker')}
-               style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, color: '#0F6E56', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-               → Me connecter à mon espace promeneur
-             </button>
-           )}
-           {wrongDoor === 'owner' && (
-             <button onClick={() => switchDoor('owner')}
-               style={{ display: 'block', marginTop: 10, background: 'none', border: 'none', padding: 0, color: '#0F6E56', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-               → Me connecter à mon compte propriétaire
-             </button>
-           )}
          </div>
        )}
 
@@ -153,12 +110,10 @@ export default function Login() {
        </button>
 
        <div style={{ textAlign: 'center', padding: '16px 0', borderTop: '1px solid #F0F0F0' }}>
-         <span style={{ fontSize: 14, color: '#888' }}>
-           {fromWalker ? 'Pas encore promeneur ? ' : 'Pas encore de compte ? '}
-         </span>
-         <button onClick={() => navigate(fromWalker ? '/register-walker' : '/register')}
+         <span style={{ fontSize: 14, color: '#888' }}>Pas encore de compte ? </span>
+         <button onClick={() => navigate('/register')}
            style={{ background: 'none', border: 'none', color: '#1D9E75', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-           {fromWalker ? 'Devenir promeneur' : "S'inscrire"}
+           S'inscrire
          </button>
        </div>
 

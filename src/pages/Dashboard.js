@@ -58,6 +58,17 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [userCoords, setUserCoords] = useState(null);
 
+  // Adresse de prise en charge par défaut ("chez moi"), affichée et
+  // modifiable en haut de l'accueil façon Uber — sert aussi à pré-remplir
+  // l'adresse au moment de réserver une Balade ou une Garde à domicile.
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [pickerAddress, setPickerAddress] = useState('');
+  const [pickerCoords, setPickerCoords] = useState(null);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [locatingMe, setLocatingMe] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const locationAddressRef = useRef(null);
+
   // Profil edit
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState({ first_name: '', last_name: '', phone: '' });
@@ -499,6 +510,82 @@ export default function Dashboard() {
     if (data) setFavorites(favs => favs.map(f => f.id === tempId ? data : f));
   };
 
+  // Adresse par défaut ("chez moi") — ouverture du sélecteur pré-rempli
+  // avec l'adresse déjà enregistrée s'il y en a une.
+  const openLocationPicker = () => {
+    setPickerAddress(profile?.default_address || '');
+    setPickerCoords(profile?.default_lat != null && profile?.default_lng != null
+      ? { lat: profile.default_lat, lng: profile.default_lng } : null);
+    setLocationError('');
+    setShowLocationPicker(true);
+  };
+
+  // "Utiliser ma position actuelle" — géolocalisation puis conversion en
+  // adresse lisible (géocodage inverse), plutôt que de sauvegarder de
+  // simples coordonnées que la propriétaire ne pourrait pas relire.
+  const useMyLocationForPicker = () => {
+    if (!navigator.geolocation) { setLocationError("La géolocalisation n'est pas disponible sur cet appareil."); return; }
+    setLocationError('');
+    setLocatingMe(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setPickerCoords(coords);
+        if (window.google) {
+          const geocoder = new window.google.maps.Geocoder();
+          geocoder.geocode({ location: coords }, (results, status) => {
+            setLocatingMe(false);
+            if (status === 'OK' && results?.[0]) setPickerAddress(results[0].formatted_address);
+          });
+        } else {
+          setLocatingMe(false);
+        }
+      },
+      () => { setLocatingMe(false); setLocationError("Position refusée — entrez votre adresse manuellement."); },
+      { timeout: 10000 }
+    );
+  };
+
+  const saveDefaultLocation = async () => {
+    if (!pickerAddress.trim() || !ownerIdRef.current) return;
+    setSavingLocation(true);
+    const updates = {
+      default_address: pickerAddress.trim(),
+      default_lat: pickerCoords?.lat ?? null,
+      default_lng: pickerCoords?.lng ?? null,
+    };
+    const { error } = await supabase.from('profiles').update(updates).eq('id', ownerIdRef.current);
+    setSavingLocation(false);
+    if (error) { setLocationError("L'enregistrement a échoué — réessayez."); return; }
+    setProfile(p => ({ ...p, ...updates }));
+    setShowLocationPicker(false);
+  };
+
+  // Passer une Balade / une Garde à domicile avec l'adresse par défaut déjà
+  // enregistrée, façon Uber : le propriétaire n'a pas à la retaper à chaque
+  // réservation — il peut toujours la corriger dans le parcours lui-même.
+  const startBooking = (service) => {
+    navigate(`/book/${service}`, profile?.default_address
+      ? { state: { defaultAddress: profile.default_address, defaultLat: profile.default_lat, defaultLng: profile.default_lng } }
+      : undefined);
+  };
+
+  // Autocomplétion d'adresse du sélecteur (même composant Google Places que
+  // celui déjà utilisé dans le parcours de réservation).
+  useEffect(() => {
+    if (!showLocationPicker || !window.google) return;
+    const input = locationAddressRef.current;
+    if (!input) return;
+    const ac = new window.google.maps.places.Autocomplete(input, { types: ['address'], componentRestrictions: { country: 'fr' } });
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace();
+      if (place.formatted_address) setPickerAddress(place.formatted_address);
+      if (place.geometry?.location) {
+        setPickerCoords({ lat: place.geometry.location.lat(), lng: place.geometry.location.lng() });
+      }
+    });
+  }, [showLocationPicker]);
+
   const openHistoryChat = async (booking) => {
     setHistoryChat(booking);
     setHistoryMsgLoading(true);
@@ -778,6 +865,20 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Adresse par défaut, façon Uber — toujours visible en haut de
+            l'accueil, avant même une éventuelle balade en cours. */}
+        <div onClick={openLocationPicker}
+          style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 14, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: activeBooking ? 10 : 0 }}>
+          <span style={{ fontSize: 18, flexShrink: 0 }}>📍</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>Adresse de prise en charge</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {profile?.default_address || 'Ajouter votre adresse'}
+            </div>
+          </div>
+          <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.7)', flexShrink: 0 }}>›</span>
+        </div>
+
         {activeBooking && (
           <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 14, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
             onClick={() => setTab('live')}>
@@ -833,7 +934,7 @@ export default function Dashboard() {
                 <p style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>Que voulez-vous commander ?</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   {/* Balade */}
-                  <div onClick={() => navigate('/book/walk')}
+                  <div onClick={() => startBooking('walk')}
                     style={{ background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '18px 14px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>🐕</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Balade</div>
@@ -844,7 +945,7 @@ export default function Dashboard() {
                     <div style={{ position: 'absolute', bottom: -10, right: -10, fontSize: 48, opacity: 0.15 }}>🐕</div>
                   </div>
                   {/* Dogger Home */}
-                  <div onClick={() => navigate('/book/home')}
+                  <div onClick={() => startBooking('home')}
                     style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)', borderRadius: 18, padding: '18px 14px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(255,255,255,0.25)', borderRadius: 8, padding: '2px 7px', fontSize: 9, fontWeight: 700, color: '#fff' }}>Nouveau</div>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>🏠</div>
@@ -1594,6 +1695,44 @@ export default function Dashboard() {
             <div onClick={() => setShowRatingModal(false)} style={{ textAlign: 'center', fontSize: 13, color: '#AAA', cursor: 'pointer' }}>
               Plus tard
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADRESSE PAR DÉFAUT, FAÇON UBER */}
+      {showLocationPicker && (
+        <div style={{ position: 'fixed', inset: 0, background: '#F8FAF9', zIndex: 400, display: 'flex', flexDirection: 'column', maxWidth: 430, margin: '0 auto' }}>
+          <div style={{ background: 'linear-gradient(160deg, #0F6E56, #1D9E75)', padding: '48px 20px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={() => setShowLocationPicker(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 14px', fontSize: 14, cursor: 'pointer' }}>← Retour</button>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Votre adresse de prise en charge</div>
+          </div>
+          <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' }}>Adresse</label>
+            <input ref={locationAddressRef} autoFocus
+              style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1.5px solid #E8E8E8', fontSize: 15, fontFamily: 'inherit', outline: 'none', background: '#fff', color: '#1A1A1A', marginBottom: 12, boxSizing: 'border-box' }}
+              placeholder="12 rue de la Paix, Paris 75001" value={pickerAddress}
+              onChange={e => { setPickerAddress(e.target.value); setPickerCoords(null); }} />
+
+            <button onClick={useMyLocationForPicker} disabled={locatingMe}
+              style={{ width: '100%', padding: 13, background: '#E1F5EE', color: '#0F6E56', border: '1.5px solid #1D9E75', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: locatingMe ? 'default' : 'pointer', fontFamily: 'inherit', marginBottom: 20 }}>
+              {locatingMe ? '⏳ Localisation...' : '📍 Utiliser ma position actuelle'}
+            </button>
+
+            {locationError && (
+              <div style={{ background: '#FFF0F0', border: '1px solid #FFD0D0', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#E24B4A', marginBottom: 16 }}>
+                ⚠️ {locationError}
+              </div>
+            )}
+
+            <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '12px 16px', fontSize: 12.5, color: '#8A6D1F', lineHeight: 1.5 }}>
+              💡 Cette adresse pré-remplit vos prochaines réservations — vous pourrez toujours la modifier lors d'une réservation précise.
+            </div>
+          </div>
+          <div style={{ padding: '16px 20px', background: '#fff', borderTop: '1px solid #F0F0F0' }}>
+            <button onClick={saveDefaultLocation} disabled={!pickerAddress.trim() || savingLocation}
+              style={{ width: '100%', padding: 16, background: pickerAddress.trim() ? 'linear-gradient(135deg, #1D9E75, #0F6E56)' : '#F0F0F0', color: pickerAddress.trim() ? '#fff' : '#AAA', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: pickerAddress.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}>
+              {savingLocation ? 'Enregistrement...' : 'Enregistrer cette adresse'}
+            </button>
           </div>
         </div>
       )}

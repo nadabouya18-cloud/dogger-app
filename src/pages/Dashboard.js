@@ -95,7 +95,7 @@ export default function Dashboard() {
 
   // Noter le promeneur juste après la balade — la vraie note publique du
   // promeneur doit venir du client, pas de lui-même.
-  const [lastCompletedBooking, setLastCompletedBooking] = useState(null); // { id, walkerName }
+  const [lastCompletedBooking, setLastCompletedBooking] = useState(null); // { id, walkerName, walkerId, walkerRating, walkerTotalWalks }
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [ownerRatingValue, setOwnerRatingValue] = useState(0);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
@@ -243,7 +243,11 @@ export default function Dashboard() {
       if (!found && (lastBookingStatusRef.current === 'walker_returning' || lastBookingStatusRef.current === 'incident')) {
         setJustFinished(true);
         if (lastKnownBookingRef.current) {
-          setLastCompletedBooking({ id: lastKnownBookingRef.current.id, walkerName: lastKnownBookingRef.current.walker_name });
+          setLastCompletedBooking({
+            id: lastKnownBookingRef.current.id, walkerName: lastKnownBookingRef.current.walker_name,
+            walkerId: lastKnownBookingRef.current.walker_id, walkerRating: lastKnownBookingRef.current.walker_rating,
+            walkerTotalWalks: lastKnownBookingRef.current.walker_total_walks,
+          });
           setOwnerRatingValue(0);
           setRatingSubmitted(false);
           setShowRatingModal(true);
@@ -419,7 +423,11 @@ export default function Dashboard() {
     try {
       await supabase.from('bookings').update({ status: 'completed' }).eq('id', activeBooking.id);
       setJustFinished(true);
-      setLastCompletedBooking({ id: activeBooking.id, walkerName: activeBooking.walker_name });
+      setLastCompletedBooking({
+        id: activeBooking.id, walkerName: activeBooking.walker_name,
+        walkerId: activeBooking.walker_id, walkerRating: activeBooking.walker_rating,
+        walkerTotalWalks: activeBooking.walker_total_walks,
+      });
       setOwnerRatingValue(0);
       setRatingSubmitted(false);
       setShowRatingModal(true);
@@ -1688,6 +1696,15 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+            {lastCompletedBooking.walkerId && (
+              <div onClick={() => toggleFavorite(lastCompletedBooking.walkerId, lastCompletedBooking.walkerName, lastCompletedBooking.walkerRating, lastCompletedBooking.walkerTotalWalks)}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 20, cursor: 'pointer', padding: '10px', borderRadius: 12, background: favoriteWalkerIds.has(lastCompletedBooking.walkerId) ? '#FFF8E1' : '#F8FAF9' }}>
+                <span style={{ fontSize: 18 }}>{favoriteWalkerIds.has(lastCompletedBooking.walkerId) ? '⭐' : '☆'}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: favoriteWalkerIds.has(lastCompletedBooking.walkerId) ? '#B8860B' : '#555' }}>
+                  {favoriteWalkerIds.has(lastCompletedBooking.walkerId) ? `${lastCompletedBooking.walkerName || 'Ce promeneur'} est dans vos favoris` : `Ajouter ${lastCompletedBooking.walkerName || 'ce promeneur'} aux favoris`}
+                </span>
+              </div>
+            )}
             <button onClick={submitOwnerRating} disabled={!ownerRatingValue || submittingRating}
               style={{ width: '100%', padding: 16, background: ownerRatingValue ? 'linear-gradient(135deg, #1D9E75, #0F6E56)' : '#F0F0F0', color: ownerRatingValue ? '#fff' : '#AAA', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: ownerRatingValue ? 'pointer' : 'default', fontFamily: 'inherit', marginBottom: 14 }}>
               {submittingRating ? 'Envoi...' : 'Envoyer ma note'}

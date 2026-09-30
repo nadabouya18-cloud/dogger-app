@@ -6,6 +6,17 @@ import VerificationScreen, { fetchMyVerification, VerifBadge, isBlocked } from '
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
+// Libellé affiché dans la discussion pour chacun des 4 types de photo
+// "état des lieux" (remise/retour × moi/client) — même logique des deux
+// côtés et aux deux moments.
+const PHOTO_KIND_LABELS = {
+  handover_photo: '📸 Photo à la prise en charge (moi)',
+  owner_handover_photo: '📸 Photo à la remise (client)',
+  return_photo: '📸 Photo au retour (moi)',
+  owner_return_photo: '📸 Photo à la récupération (client)',
+};
+const PHOTO_KINDS = ['photo', 'handover_photo', 'owner_handover_photo', 'return_photo', 'owner_return_photo'];
+
 // Temps laissé au promeneur pour répondre à une nouvelle mission avant
 // qu'elle ne soit automatiquement refusée (et proposée à un autre promeneur).
 const MISSION_TIMER_SECONDS = 60;
@@ -1137,11 +1148,11 @@ export default function WalkerHome() {
            {messages.map(msg => (
              msg.kind === 'event' ? (
                <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>
-             ) : (msg.kind === 'photo' || msg.kind === 'handover_photo' || msg.kind === 'return_photo') ? (
+             ) : PHOTO_KINDS.includes(msg.kind) ? (
                <div key={msg.id} style={{ alignSelf: msg.sender_id === walkerId ? 'flex-end' : 'flex-start' }}>
                  {msg.kind !== 'photo' && (
                    <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textAlign: msg.sender_id === walkerId ? 'right' : 'left' }}>
-                     {msg.kind === 'handover_photo' ? '📸 Photo à la prise en charge' : '📸 Photo au retour'}
+                     {PHOTO_KIND_LABELS[msg.kind]}
                    </div>
                  )}
                  <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />
@@ -1187,11 +1198,11 @@ export default function WalkerHome() {
            ) : historyMessages.map(msg => (
              msg.kind === 'event' ? (
                <div key={msg.id} style={{ alignSelf: 'center', background: '#FFF8E1', color: '#B8860B', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{msg.text}</div>
-             ) : (msg.kind === 'photo' || msg.kind === 'handover_photo' || msg.kind === 'return_photo') ? (
+             ) : PHOTO_KINDS.includes(msg.kind) ? (
                <div key={msg.id} style={{ alignSelf: msg.sender_id === walkerId ? 'flex-end' : 'flex-start' }}>
                  {msg.kind !== 'photo' && (
                    <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textAlign: msg.sender_id === walkerId ? 'right' : 'left' }}>
-                     {msg.kind === 'handover_photo' ? '📸 Photo à la prise en charge' : '📸 Photo au retour'}
+                     {PHOTO_KIND_LABELS[msg.kind]}
                    </div>
                  )}
                  <img src={msg.image_url} alt="balade" style={{ width: 180, height: 180, borderRadius: 14, objectFit: 'cover' }} />

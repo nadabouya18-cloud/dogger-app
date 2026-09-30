@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
+import VerificationScreen, { fetchMyVerification, VerifBadge, isBlocked } from '../Verification';
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
 
@@ -57,6 +58,9 @@ export default function WalkerHome() {
  const [historyChat, setHistoryChat] = useState(null); // { bookingId, owner, dog } | null — mission passée dont on consulte l'historique
  const [historyMessages, setHistoryMessages] = useState([]);
  const [historyLoading, setHistoryLoading] = useState(false);
+ // Vérification d'identité
+ const [verification, setVerification] = useState({ status: 'none' });
+
  // Aide & Support
  const [openFaq, setOpenFaq] = useState(null);
  const [supportTickets, setSupportTickets] = useState([]);
@@ -154,6 +158,7 @@ export default function WalkerHome() {
        });
        setWalkerId(session.user.id);
        setAvailable(!!walkerData.available);
+       fetchMyVerification(session.user.id).then(setVerification);
        if (walksData) {
          setHistory(walksData.map(w => ({
            id: w.id,
@@ -656,6 +661,12 @@ export default function WalkerHome() {
  useEffect(() => {
    if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
  }, [messages, showChat]);
+
+ // Statut de vérification d'identité (aucun document n'est stocké côté app).
+ const openVerifyTab = async () => {
+   setTab('verify');
+   setVerification(await fetchMyVerification(walkerId));
+ };
 
  // Aide & Support. Les demandes vivent dans support_tickets : chacun ne voit
  // que les siennes (RLS), et la réponse écrite côté Supabase revient dans
@@ -1280,6 +1291,9 @@ export default function WalkerHome() {
            </div>
          </div>
          <div onClick={async () => {
+           // Un compte non vérifié ne peut pas se rendre disponible quand le
+           // blocage est activé — on l'envoie sur l'écran de vérification.
+           if (!available && isBlocked(verification.status)) { openVerifyTab(); return; }
            const next = !available;
            setAvailable(next);
            if (!next) { setPhase('idle'); setMission(null); }
@@ -1789,6 +1803,7 @@ export default function WalkerHome() {
                { icon: '📱', label: 'Notifications' },
                { icon: '🔒', label: 'Sécurité & mot de passe', onClick: () => setTab('security') },
                { icon: '❓', label: 'Aide & Support', onClick: () => openSupportTab() },
+               { icon: '🪪', label: "Vérification d'identité", onClick: openVerifyTab, badge: verification.status },
                { icon: '📄', label: 'Informations légales', onClick: () => setTab('legal') },
                { icon: '🚪', label: 'Se déconnecter', color: '#E24B4A', onClick: handleLogout },
              ].map((item, idx, arr) => (
@@ -1796,11 +1811,18 @@ export default function WalkerHome() {
                  style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: idx < arr.length - 1 ? '1px solid #F0F0F0' : 'none', cursor: 'pointer' }}>
                  <span style={{ fontSize: 20 }}>{item.icon}</span>
                  <span style={{ fontSize: 15, color: item.color || '#1A1A1A', fontWeight: 500 }}>{item.label}</span>
-                 <span style={{ marginLeft: 'auto', color: '#CCC', fontSize: 18 }}>›</span>
+                 {item.badge && <span style={{ marginLeft: 'auto' }}><VerifBadge status={item.badge} /></span>}
+                 <span style={{ marginLeft: item.badge ? 8 : 'auto', color: '#CCC', fontSize: 18 }}>›</span>
                </div>
              ))}
            </div>
          </div>
+       )}
+
+       {/* VÉRIFICATION D'IDENTITÉ */}
+       {tab === 'verify' && (
+         <VerificationScreen userId={walkerId} verification={verification}
+           onChange={setVerification} onBack={() => setTab('profile')} />
        )}
 
        {/* INFORMATIONS LÉGALES — textes partagés avec l'espace propriétaire */}

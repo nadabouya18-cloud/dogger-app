@@ -826,6 +826,7 @@ export default function BookingFlow() {
       walker_name: walkerName,
       walker_rating: chosen.rating || null,
       walker_total_walks: chosen.total_walks || 0,
+      walker_verified: chosen.verified || false,
       updated_at: new Date().toISOString(),
     };
     const { data: inserted, error: insertError } = await supabase
@@ -1073,7 +1074,10 @@ export default function BookingFlow() {
                   <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px', borderRadius: 16, border: '1.5px solid #E8E8E8', background: '#FAFAFA' }}>
                     {w.photo_url ? <img src={w.photo_url} alt={name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>🧑</div>}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>{name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>{name}</div>
+                        {w.verified && <span style={{ fontSize: 10, fontWeight: 700, color: '#1D9E75', background: '#E1F5EE', borderRadius: 10, padding: '2px 7px', whiteSpace: 'nowrap' }}>✅ Vérifié</span>}
+                      </div>
                       <div style={{ fontSize: 12, color: '#888' }}>⭐ {w.rating ? Number(w.rating).toFixed(1) : '—'} · {w.total_walks || 0} balade{(w.total_walks || 0) > 1 ? 's' : ''}{w.distanceKm != null ? ` · ${w.distanceKm < 1 ? Math.round(w.distanceKm * 1000) + ' m' : Math.round(w.distanceKm * 10) / 10 + ' km'}` : ''}</div>
                       {w.bio && <div style={{ fontSize: 11, color: '#AAA', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{w.bio}</div>}
                     </div>

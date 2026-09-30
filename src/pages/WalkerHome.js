@@ -557,7 +557,7 @@ export default function WalkerHome() {
    setScheduledActionLoading(booking.id);
    try {
      const updates = decision === 'accepted'
-       ? { status: 'accepted', walker_name: displayName, walker_rating: avgRating ? Number(avgRating) : null, walker_total_walks: totalWalks }
+       ? { status: 'accepted', walker_name: displayName, walker_rating: avgRating ? Number(avgRating) : null, walker_total_walks: totalWalks, walker_verified: verification.status === 'verified' }
        : { status: 'refused' };
      await supabase.from('bookings').update(updates).eq('id', booking.id);
      setScheduledRequests(prev => prev.filter(b => b.id !== booking.id));
@@ -893,6 +893,7 @@ export default function WalkerHome() {
        walker_name: displayName,
        walker_rating: avgRating ? Number(avgRating) : null,
        walker_total_walks: totalWalks,
+       walker_verified: verification.status === 'verified',
      }).eq('id', mission.bookingId);
    }
    if (walkerId) {

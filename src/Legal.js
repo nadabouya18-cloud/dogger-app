@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 // promeneur (un seul endroit à modifier). LEGAL_VERSION sert à horodater
 // l'acceptation des conditions à l'inscription : si le texte change de façon
 // significative, on incrémente cette date et on peut redemander l'accord.
-export const LEGAL_VERSION = '2026-09-12';
+export const LEGAL_VERSION = '2026-09-14';
 
 // Tout ce qui est entre crochets doit être complété avant toute ouverture au
 // public — c'est volontairement visible plutôt que masqué par une formule
@@ -63,7 +63,8 @@ const DOCS = [
         h: '2. Qui sont les promeneurs',
         p: [
           "Les promeneurs sont des particuliers, non professionnels.",
-          "Dogger ne vérifie ni leur identité, ni leur casier judiciaire, ni leurs compétences, ni leur assurance. Aucune enquête n'est menée sur eux.",
+          "Une vérification d'identité est en cours de déploiement. Lorsqu'un compte est vérifié, un badge l'indique explicitement : en l'absence de ce badge, aucun contrôle n'a été effectué sur ce compte.",
+          "La vérification porte uniquement sur l'identité et la majorité de la personne. Dogger ne vérifie ni les compétences, ni le casier judiciaire — une plateforme n'y a pas accès —, ni l'assurance du promeneur. Aucune enquête n'est menée sur lui.",
           "La note et le nombre de balades affichés reflètent uniquement l'historique enregistré dans l'application — ce n'est pas un agrément.",
           "Le choix du promeneur appartient au propriétaire, y compris lorsqu'il utilise la recherche automatique : celle-ci ne fait que proposer le promeneur disponible le plus proche.",
         ],
@@ -335,4 +336,3 @@ export default function LegalScreen({ onBack }) {
     </div>
   );
 }
-

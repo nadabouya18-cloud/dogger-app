@@ -212,6 +212,16 @@ export default function BookingFlow() {
         resetBooking();
         matchTriedRef.current = [];
         matchBookingIdRef.current = null;
+        // Adresse par défaut enregistrée depuis l'accueil (façon Uber) :
+        // pré-remplie ici, mais reste modifiable normalement à l'étape 1 —
+        // ce n'est qu'un point de départ, pas une valeur figée.
+        if (location.state?.defaultAddress) {
+          if (urlFlowType === 'walk') setWalkAddress(location.state.defaultAddress);
+          else setHomeAddress(location.state.defaultAddress);
+          if (location.state.defaultLat != null && location.state.defaultLng != null) {
+            setUserCoords({ lat: location.state.defaultLat, lng: location.state.defaultLng });
+          }
+        }
       }
       setFlowType(urlFlowType);
     } else if (!urlFlowType) {

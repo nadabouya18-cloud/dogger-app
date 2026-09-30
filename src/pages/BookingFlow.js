@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { fetchMyVerification, isBlocked, VerificationBlock } from '../Verification';
 import useBookingStore from '../store/bookingStore';
 
 const WALK_SERVICES = [
@@ -141,6 +142,7 @@ export default function BookingFlow() {
 
   const [userDogs, setUserDogs] = React.useState([]);
   const [error, setError] = React.useState('');
+  const [verifStatus, setVerifStatus] = React.useState('verified'); // optimiste : on ne bloque qu'une fois le vrai statut connu
   const [locating, setLocating] = React.useState(false);
   const [dots, setDots] = React.useState([false, false, false]);
   const [searchStep, setSearchStep] = React.useState(0);
@@ -213,6 +215,7 @@ export default function BookingFlow() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       ownerIdRef.current = session.user.id;
+      fetchMyVerification(session.user.id).then(v => setVerifStatus(v.status));
       const { data } = await supabase.from('dogs').select('*').eq('owner_id', session.user.id);
       if (data) {
         setUserDogs(data);
@@ -975,6 +978,18 @@ export default function BookingFlow() {
   const inputStyle = { width: '100%', padding: '14px 16px', borderRadius: 12, border: '1.5px solid #E8E8E8', fontSize: 15, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', color: '#1A1A1A', marginBottom: 12, boxSizing: 'border-box' };
   const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
   const textareaStyle = { ...inputStyle, height: 72, resize: 'none' };
+
+  // ── VÉRIFICATION D'IDENTITÉ REQUISE ─────────────────────────────────────────
+  // Placé avant tous les autres écrans : tant que le compte n'est pas vérifié,
+  // aucune réservation ne peut être lancée (si le blocage est activé).
+  if (isBlocked(verifStatus)) {
+    return (
+      <VerificationBlock
+        onVerify={() => navigate('/dashboard?tab=verify')}
+        onBack={goToDashboard}
+      />
+    );
+  }
 
   // ── ÉCHEC DE LA MISE EN RELATION (BALADE) ───────────────────────────────────
   if (matchingError && flowType === 'walk' && !matched) {

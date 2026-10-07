@@ -31,6 +31,22 @@ const SIZE_LABELS = {
   l:  { label: '🐕‍🦺 L', desc: '> 35 kg',  color: '#E24B4A' },
 };
 
+// Réduit une image (dataURL) à 1400 px max en JPEG : la fonction serveur
+// n'accepte pas les images de plusieurs Mo, et l'IA n'a pas besoin de plus.
+const shrinkImage = (dataUrl, maxSide = 1400, quality = 0.82) => new Promise((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => {
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    resolve(canvas.toDataURL('image/jpeg', quality));
+  };
+  img.onerror = reject;
+  img.src = dataUrl;
+});
+
 export default function Register() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
@@ -66,8 +82,8 @@ export default function Register() {
 
   const validateStep1 = () => {
     if (!form.firstName) return 'Entrez votre prénom';
-    if (!form.email || !form.email.includes('@')) return 'Email invalide';
-    if (form.password.length < 6) return 'Mot de passe trop court (6 caractères min)';
+    if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return 'Email invalide';
+    if (form.password.length < 8) return 'Mot de passe trop court (8 caractères min)';
     if (!form.phone) return 'Le numéro de téléphone est obligatoire';
     const cleaned = form.phone.replace(/\s/g, '');
     if (!/^[67]\d{8}$/.test(cleaned)) return 'Numéro invalide — commence par 6 ou 7';
@@ -177,32 +193,21 @@ export default function Register() {
       setIdCardValid(false);
       setIdCardLoading(true);
       try {
-        // Appel IA pour vérifier que c'est une vraie pièce d'identité
-        const base64Data = base64.split(',')[1];
-        const mediaType = file.type.startsWith('image/') ? file.type : 'image/jpeg';
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
+        // Vérification IA que c'est une vraie pièce d'identité — faite côté
+        // serveur (api/verify-id.js) : la clé Anthropic n'est plus dans le navigateur.
+        // Les PDF ne peuvent pas être analysés ici (l'IA lit des images) : on les accepte comme avant.
+        if (!file.type.startsWith('image/')) {
+          setIdCardValid(true);
+          return;
+        }
+        const small = await shrinkImage(base64);
+        const res = await fetch('/api/verify-id', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': process.env.REACT_APP_ANTHROPIC_KEY,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 200,
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-                { type: 'text', text: 'Analyse cette image et réponds UNIQUEMENT en JSON sans markdown:\n{"isIdCard":true/false,"type":"carte_identite/passeport/permis/autre","valid":true/false,"message":"explication courte en français max 10 mots"}\n\nRègles STRICTES:\n- isIdCard: true UNIQUEMENT si c\'est une vraie pièce d\'identité officielle (carte nationale d\'identité, passeport, permis de conduire)\n- Si c\'est un animal, objet, photo de personne sans document officiel: isIdCard=false, valid=false\n- valid: true UNIQUEMENT si c\'est un document d\'identité officiel clairement visible\n- Sois très strict' }
-              ]
-            }]
-          })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: small.split(',')[1], mediaType: 'image/jpeg' })
         });
-        const data = await res.json();
-        const text = data.content?.[0]?.text || '{}';
-        const result = JSON.parse(text.replace(/```json|```/g, '').trim());
+        if (!res.ok) throw new Error('verify-id ' + res.status);
+        const result = await res.json();
         if (!result.isIdCard || !result.valid) {
           setIdCardError(result.message || 'Document invalide — uploadez une vraie pièce d\'identité');
           setIdCardValid(false);
@@ -340,7 +345,7 @@ export default function Register() {
             <input style={inputStyle} type="email" placeholder="marie@exemple.fr" value={form.email}
               onChange={e => update('email', e.target.value)} />
             <label style={labelStyle}>Mot de passe *</label>
-            <input style={inputStyle} type="password" placeholder="6 caractères minimum" value={form.password}
+            <input style={inputStyle} type="password" placeholder="8 caractères minimum" value={form.password}
               onChange={e => update('password', e.target.value)} />
             <label style={labelStyle}>Téléphone * <span style={{ color: '#AAA', fontWeight: 400 }}>(commence par 6 ou 7)</span></label>
             <div style={{ position: 'relative', marginBottom: 16 }}>

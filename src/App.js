@@ -8,7 +8,9 @@ import Dashboard from './pages/Dashboard';
 import BookingFlow from './pages/BookingFlow';
 import WalkerHome from './pages/WalkerHome';
 import AddDog from './pages/AddDog';
+import ResetPassword from './pages/ResetPassword';
 import { supabase } from './supabase';
+import { PhoneGate, needsPhoneVerification } from './Verification';
 
 function ProtectedRoute({ children }) {
   const [session, setSession] = React.useState(undefined);
@@ -23,6 +25,13 @@ function ProtectedRoute({ children }) {
     </div>
   );
   if (!session) return <Navigate to={window.location.pathname === '/walker' ? '/login?redirect=walker' : '/login'} />;
+  // Téléphone obligatoire pour les comptes récents (voir Verification.js).
+  if (needsPhoneVerification(session.user)) {
+    return <PhoneGate user={session.user} onVerified={async () => {
+      const { data } = await supabase.auth.refreshSession();
+      setSession(data?.session || session);
+    }} />;
+  }
   return children;
 }
 
@@ -32,6 +41,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/register" element={<Register />} />
         <Route path="/register-walker" element={<RegisterWalker />} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

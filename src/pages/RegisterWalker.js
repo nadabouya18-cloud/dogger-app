@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { LEGAL_VERSION, TermsCheckbox } from '../Legal';
+
+// Trace de l'acceptation des conditions. Deux écritures volontairement
+// redondantes : les métadonnées du compte sont toujours enregistrées, même
+// quand aucune session n'est encore active ; la ligne dans terms_acceptances
+// est l'historique consultable, qui survit à un changement de version.
+const recordTermsAcceptance = async (userId, role) => {
+  try {
+    await supabase.from('terms_acceptances').insert({
+      user_id: userId, version: LEGAL_VERSION, role,
+    });
+  } catch (e) {
+    // Pas de session active (confirmation d'e-mail en attente) : les
+    // métadonnées du compte font foi.
+  }
+};
 
 export default function RegisterWalker() {
   const navigate = useNavigate();
@@ -13,6 +29,7 @@ export default function RegisterWalker() {
   const [error, setError] = useState('');
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoValid, setPhotoValid] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -30,6 +47,7 @@ export default function RegisterWalker() {
 
   const validateStep2 = () => {
     if (!form.bio || form.bio.trim().length < 20) return 'Présentez-vous en au moins 20 caractères';
+    if (!termsAccepted) return "Vous devez accepter les conditions pour créer un profil promeneur";
     return null;
   };
 
@@ -82,6 +100,8 @@ export default function RegisterWalker() {
             // de session active (email pas encore confirmé).
             role: 'walker',
             bio: form.bio,
+            terms_version: LEGAL_VERSION,
+            terms_accepted_at: new Date().toISOString(),
           }
         }
       });
@@ -98,6 +118,7 @@ export default function RegisterWalker() {
         return;
       }
 
+      await recordTermsAcceptance(data.user.id, 'walker');
       setStep(3);
     } catch (e) {
       console.error(e);
@@ -235,6 +256,10 @@ export default function RegisterWalker() {
               <div style={{ fontSize: 13, color: '#555', fontStyle: 'italic' }}>"{form.bio}"</div>
             </div>
           </div>
+        )}
+
+        {step === 2 && (
+          <TermsCheckbox checked={termsAccepted} onChange={setTermsAccepted} />
         )}
 
         {error && (

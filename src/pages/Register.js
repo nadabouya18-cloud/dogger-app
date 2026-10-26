@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { LEGAL_VERSION, TermsCheckbox } from '../Legal';
 
 const BREED_SIZE = {
   'Affenpinscher': 'xs', 'Bichon Frisé': 'xs', 'Bichon Maltais': 'xs', 'Chihuahua': 'xs',
@@ -47,6 +48,21 @@ const shrinkImage = (dataUrl, maxSide = 1400, quality = 0.82) => new Promise((re
   img.src = dataUrl;
 });
 
+// Trace de l'acceptation des conditions. Deux écritures volontairement
+// redondantes : les métadonnées du compte sont toujours enregistrées, même
+// quand aucune session n'est encore active ; la ligne dans terms_acceptances
+// est l'historique consultable, qui survit à un changement de version.
+const recordTermsAcceptance = async (userId, role) => {
+  try {
+    await supabase.from('terms_acceptances').insert({
+      user_id: userId, version: LEGAL_VERSION, role,
+    });
+  } catch (e) {
+    // Pas de session active (confirmation d'e-mail en attente) : les
+    // métadonnées du compte font foi.
+  }
+};
+
 export default function Register() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
@@ -67,6 +83,7 @@ export default function Register() {
   const [idCardLoading, setIdCardLoading] = useState(false);
   const [idCardValid, setIdCardValid] = useState(false);
   const [idCardError, setIdCardError] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -102,6 +119,7 @@ export default function Register() {
     if (!form.dogGender) return 'Sélectionnez le genre';
     if (!form.dogBreed) return 'Sélectionnez une race';
     if (!form.dogSize) return 'Sélectionnez un gabarit';
+    if (!termsAccepted) return "Vous devez accepter les conditions d'utilisation pour créer un compte";
     return null;
   };
 
@@ -137,6 +155,8 @@ export default function Register() {
             dog_gender: form.dogGender,
             dog_age: String(form.dogAge),
             dog_notes: form.dogNotes,
+            terms_version: LEGAL_VERSION,
+            terms_accepted_at: new Date().toISOString(),
           }
         }
       });
@@ -152,6 +172,7 @@ export default function Register() {
         setLoading(false);
         return;
       }
+      await recordTermsAcceptance(data.user.id, 'owner');
       setStep(3);
     } catch (e) {
       console.error(e);
@@ -508,6 +529,10 @@ export default function Register() {
               )}
             </div>
           </div>
+        )}
+
+        {step === 2 && (
+          <TermsCheckbox checked={termsAccepted} onChange={setTermsAccepted} />
         )}
 
         {error && (

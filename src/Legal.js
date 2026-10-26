@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 // promeneur (un seul endroit à modifier). LEGAL_VERSION sert à horodater
 // l'acceptation des conditions à l'inscription : si le texte change de façon
 // significative, on incrémente cette date et on peut redemander l'accord.
-export const LEGAL_VERSION = '2026-09-14';
+export const LEGAL_VERSION = '2026-10-26';
 
 // Tout ce qui est entre crochets doit être complété avant toute ouverture au
 // public — c'est volontairement visible plutôt que masqué par une formule
@@ -57,13 +57,15 @@ const DOCS = [
         p: [
           "Dogger est un service de mise en relation entre des propriétaires de chiens et des promeneurs.",
           "Dogger n'effectue pas les balades, n'est pas partie au contrat conclu entre le propriétaire et le promeneur, et ne perçoit aucun paiement à ce stade.",
+          "Seule la formule « Balade » est ouverte à ce jour. La garde à domicile n'est pas proposée.",
         ],
       },
       {
         h: '2. Qui sont les promeneurs',
         p: [
           "Les promeneurs sont des particuliers, non professionnels.",
-          "Une vérification d'identité est en cours de déploiement. Lorsqu'un compte est vérifié, un badge l'indique explicitement : en l'absence de ce badge, aucun contrôle n'a été effectué sur ce compte.",
+          "Une pièce d'identité est demandée à la création du compte et analysée automatiquement pour écarter les documents manifestement invalides. Ce contrôle automatique n'est pas infaillible : lorsqu'il ne peut pas aboutir, l'inscription est acceptée quand même.",
+          "Un compte peut en outre être vérifié manuellement, et son numéro de téléphone confirmé par SMS. Un badge l'indique alors explicitement : en l'absence de badge, aucun contrôle humain n'a été effectué sur ce compte.",
           "La vérification porte uniquement sur l'identité et la majorité de la personne. Dogger ne vérifie ni les compétences, ni le casier judiciaire — une plateforme n'y a pas accès —, ni l'assurance du promeneur. Aucune enquête n'est menée sur lui.",
           "La note et le nombre de balades affichés reflètent uniquement l'historique enregistré dans l'application — ce n'est pas un agrément.",
           "Le choix du promeneur appartient au propriétaire, y compris lorsqu'il utilise la recherche automatique : celle-ci ne fait que proposer le promeneur disponible le plus proche.",
@@ -195,6 +197,8 @@ const DOCS = [
         h: 'Données collectées',
         p: [
           "Compte : prénom, nom, adresse e-mail, numéro de téléphone, photo de profil, présentation (promeneurs).",
+          "Pièce d'identité : exigée à la création du compte, transmise à notre serveur puis à un service d'analyse automatique pour vérifier qu'il s'agit d'un document valide. L'image n'est enregistrée dans aucune base de données : seul le résultat de l'analyse est conservé.",
+          "Numéro de téléphone : lorsqu'il est confirmé, la confirmation est enregistrée par notre prestataire d'authentification (Supabase), qui envoie le SMS.",
           "Chien : nom, race, âge, gabarit, photo.",
           "Balade : adresse de prise en charge, date et heure, durée, prix.",
           "Position du promeneur pendant une mission en cours.",
@@ -229,6 +233,12 @@ const DOCS = [
         p: [
           "Les données de compte sont conservées tant que le compte existe.",
           "Les éléments d'une balade (messages, photos, dernière position) sont conservés [À COMPLÉTER : durée à fixer — une durée de l'ordre de trois ans est cohérente avec les délais de prescription] afin de pouvoir servir de preuve en cas de litige.",
+        ],
+      },
+      {
+        h: 'Décisions automatisées',
+        p: [
+          "L'analyse automatique de la pièce d'identité peut conduire à refuser un document. Ce refus n'est pas définitif : vous pouvez contester et demander un examen humain via Aide & Support.",
         ],
       },
       {
@@ -282,7 +292,7 @@ const DOCS = [
 const CARD = { background: '#fff', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' };
 
 // Écran "Informations légales", identique des deux côtés de l'app.
-export default function LegalScreen({ onBack }) {
+export default function LegalScreen({ onBack, backLabel = 'Retour au profil' }) {
   const [openDoc, setOpenDoc] = useState(null);
   const doc = DOCS.find(d => d.id === openDoc);
 
@@ -313,7 +323,7 @@ export default function LegalScreen({ onBack }) {
     <div style={{ animation: 'slidein 0.3s ease' }}>
       <div onClick={onBack}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1D9E75', fontWeight: 600, fontSize: 14, marginBottom: 14, cursor: 'pointer' }}>
-        ← Retour au profil
+        ← {backLabel}
       </div>
 
       <div style={{ background: '#FFF8E1', borderRadius: 16, padding: '14px 16px', marginBottom: 16, fontSize: 13, color: '#8A6D1F', lineHeight: 1.6 }}>
@@ -334,5 +344,37 @@ export default function LegalScreen({ onBack }) {
         ))}
       </div>
     </div>
+  );
+}
+
+// Case d'acceptation des conditions, affichée à l'inscription des deux côtés.
+// Le texte est consultable sans quitter l'écran : une acceptation donnée sans
+// accès au texte ne vaudrait pas grand-chose.
+export function TermsCheckbox({ checked, onChange }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 11, alignItems: 'flex-start', marginBottom: 16 }}>
+        <div onClick={() => onChange(!checked)}
+          style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 6, border: checked ? 'none' : '1.5px solid #CCC', background: checked ? '#1D9E75' : '#fff', color: '#fff', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginTop: 1 }}>
+          {checked ? '✓' : ''}
+        </div>
+        <div style={{ fontSize: 13, color: '#555', lineHeight: 1.5 }}>
+          J'ai lu et j'accepte les{' '}
+          <span onClick={() => setOpen(true)} style={{ color: '#1D9E75', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>
+            conditions d'utilisation et la politique de confidentialité
+          </span>{' '}
+          de Dogger.
+        </div>
+      </div>
+
+      {open && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: '#F8FAF9', zIndex: 1000, overflowY: 'auto', padding: '20px 16px' }}>
+          <div style={{ maxWidth: 430, margin: '0 auto' }}>
+            <LegalScreen onBack={() => setOpen(false)} backLabel="Retour à l'inscription" />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

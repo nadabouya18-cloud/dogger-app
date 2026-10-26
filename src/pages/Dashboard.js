@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
 import DeleteAccountScreen from '../DeleteAccount';
 import { HOME_SERVICE_ENABLED, localDateStr } from '../features';
+import { notifyGeneric, useScreenWakeLock } from '../alerts';
 import VerificationScreen, { fetchMyVerification, VerifBadge } from '../Verification';
 
 const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
@@ -63,6 +64,11 @@ export default function Dashboard() {
   const location = useLocation();
   const [tab, setTab] = useState(location.hash === '#live' ? 'live' : 'home');
   const [activeBooking, setActiveBooking] = useState(null);
+
+  // Pendant le suivi en direct, l'écran reste allumé : sinon le navigateur
+  // suspend la page, la carte se fige, et le propriétaire croit que le
+  // promeneur s'est arrêté de marcher.
+  useScreenWakeLock(!!activeBooking);
   const [walkTime, setWalkTime] = useState(0);
   const [selectedDog, setSelectedDog] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -222,6 +228,7 @@ export default function Dashboard() {
   const ownerIdRef = useRef(null);
   const chatEndRef = useRef(null);
   const lastBookingStatusRef = useRef(null);
+
   const lastKnownBookingRef = useRef(null); // dernière réservation active connue, pour retrouver le promeneur à noter même si son statut a changé ailleurs
 
   useEffect(() => {
@@ -268,7 +275,17 @@ export default function Dashboard() {
           setShowRatingModal(true);
         }
       }
-      lastBookingStatusRef.current = found?.status || null;
+      // Prévenir le propriétaire des étapes qu'il attend sans forcément
+      // regarder son écran : un promeneur a accepté, il arrive, il repart.
+      const before = lastBookingStatusRef.current;
+      const after = found?.status || null;
+      if (after && before && after !== before) {
+        const name = found?.walker_name || 'Le promeneur';
+        if (after === 'accepted') notifyGeneric('🐕 Promeneur trouvé !', `${name} a accepté votre balade et se met en route.`, 'dogger-booking');
+        else if (after === 'walker_arrived') notifyGeneric('📍 Votre promeneur est arrivé', `${name} vous attend pour récupérer votre chien.`, 'dogger-booking');
+        else if (after === 'walker_returning') notifyGeneric('🏠 Retour en cours', `${name} ramène votre chien.`, 'dogger-booking');
+      }
+      lastBookingStatusRef.current = after;
       if (found) lastKnownBookingRef.current = found;
       setActiveBooking(found);
     };

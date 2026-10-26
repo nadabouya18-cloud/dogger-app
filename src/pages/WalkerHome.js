@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
 import DeleteAccountScreen from '../DeleteAccount';
 import { HOME_SERVICE_ENABLED, isScheduledDue } from '../features';
+import { primeAlerts, alertsReady, notifyNewMission, notifyGeneric, useScreenWakeLock } from '../alerts';
 import VerificationScreen, { fetchMyVerification, VerifBadge, isBlocked } from '../Verification';
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
@@ -71,6 +72,9 @@ export default function WalkerHome() {
  const [historyChat, setHistoryChat] = useState(null); // { bookingId, owner, dog } | null — mission passée dont on consulte l'historique
  const [historyMessages, setHistoryMessages] = useState([]);
  const [historyLoading, setHistoryLoading] = useState(false);
+ // Alertes (son / vibration / notification) accordées par le navigateur
+ const [alertsOn, setAlertsOn] = useState(false);
+
  // Vérification d'identité
  const [verification, setVerification] = useState({ status: 'none' });
 
@@ -473,6 +477,10 @@ export default function WalkerHome() {
    ...Array(availCalDaysInMonth).fill(0).map((_, i) => i + 1),
  ];
 
+ // Pendant une mission, l'écran doit rester allumé : sinon le navigateur
+ // suspend la page et la position cesse d'être transmise au propriétaire.
+ useScreenWakeLock(phase !== 'idle');
+
  // Chercher une vraie demande de balade en attente pendant qu'on est disponible
  useEffect(() => {
    if (!available || phase !== 'idle' || !walkerId) return;
@@ -507,6 +515,9 @@ export default function WalkerHome() {
      });
      setMissionTimer(MISSION_TIMER_SECONDS);
      setPhase('mission_incoming');
+     // Son + vibration + notification : le promeneur n'a que 60 secondes, il
+     // ne peut pas être supposé regarder son écran à cet instant précis.
+     notifyNewMission({ dog: b.dog_name, duration: b.duration, price: Number(b.price) });
    };
    checkForMission();
    const interval = setInterval(checkForMission, 4000);
@@ -622,6 +633,7 @@ export default function WalkerHome() {
        setMission(null);
        setWalkTime(0);
        mapInstanceRef.current = null;
+       notifyGeneric('Balade annulée', "Le propriétaire a annulé la balade.", 'dogger-cancel');
        setShowCancelledNotice(true);
        if (walkerId) {
          await supabase.from('walker_profiles').update({ available: true }).eq('id', walkerId);
@@ -642,6 +654,7 @@ export default function WalkerHome() {
        // arrête le chrono mais on ne referme rien tout seul le temps que
        // ce soit vu et traité.
        clearInterval(walkerTimerRef.current);
+       notifyGeneric('⚠️ Signalement', "Le propriétaire a signalé ne pas avoir récupéré son chien.", 'dogger-incident');
        setShowIncidentNotice(true);
      }
    };
@@ -1309,6 +1322,9 @@ export default function WalkerHome() {
            // blocage est activé — on l'envoie sur l'écran de vérification.
            if (!available && isBlocked(verification.status)) { openVerifyTab(); return; }
            const next = !available;
+           // Ce clic est le geste utilisateur qui autorise le son : c'est le
+           // seul moment où l'on peut préparer l'alerte sonore.
+           if (next) { primeAlerts().then(() => setAlertsOn(alertsReady())); }
            setAvailable(next);
            if (!next) { setPhase('idle'); setMission(null); }
            if (walkerId) {
@@ -1319,6 +1335,14 @@ export default function WalkerHome() {
            <div style={{ width: 22, height: 22, borderRadius: '50%', background: available ? '#1D9E75' : '#fff', position: 'absolute', top: 3, left: available ? 27 : 3, transition: 'left 0.3s' }} />
          </div>
        </div>
+
+       {available && (
+         <div style={{ marginTop: 10, background: 'rgba(0,0,0,0.18)', borderRadius: 11, padding: '10px 13px', fontSize: 12, color: 'rgba(255,255,255,0.92)', lineHeight: 1.5 }}>
+           {alertsOn
+             ? "🔔 Vous serez prévenu(e) par un son et une notification. Gardez l'application ouverte : si vous la fermez complètement, les demandes ne vous parviennent plus."
+             : "🔕 Les notifications ne sont pas autorisées : vous ne serez prévenu(e) que si cet écran reste ouvert et visible. Autorisez-les dans les réglages de votre navigateur."}
+         </div>
+       )}
 
        {available && locationStatus === 'shared' && (
          <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.8)', textAlign: 'center' }}>

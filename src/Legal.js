@@ -246,7 +246,7 @@ const DOCS = [
         p: [
           "Vous disposez d'un droit d'accès, de rectification, d'effacement, de limitation, d'opposition et de portabilité, ainsi que du droit d'introduire une réclamation auprès de la CNIL.",
           "Le prénom et le nom ne sont pas modifiables directement dans l'application, afin que les balades passées restent cohérentes : une demande de rectification se fait via Aide & Support.",
-          "La suppression du compte n'est pas encore automatisée dans l'application : elle se demande via Aide & Support.",
+          "La suppression du compte se fait depuis le menu Profil → « Supprimer mon compte ». Elle est définitive. Les balades déjà effectuées restent dans l'historique de l'autre partie, votre nom y étant remplacé par « Compte supprimé ».",
         ],
       },
       {

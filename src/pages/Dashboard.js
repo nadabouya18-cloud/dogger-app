@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
+import DeleteAccountScreen from '../DeleteAccount';
 import { HOME_SERVICE_ENABLED, localDateStr } from '../features';
 import VerificationScreen, { fetchMyVerification, VerifBadge } from '../Verification';
 
@@ -1451,6 +1452,11 @@ export default function Dashboard() {
             onChange={setVerification} onBack={() => setTab('profile')} />
         )}
 
+        {/* SUPPRESSION DU COMPTE */}
+        {tab === 'delete' && (
+          <DeleteAccountScreen userId={ownerIdRef.current} role="owner" onBack={() => setTab('profile')} />
+        )}
+
         {/* INFORMATIONS LÉGALES — textes partagés avec l'espace promeneur */}
         {tab === 'legal' && <LegalScreen onBack={() => setTab('profile')} />}
 
@@ -1726,6 +1732,7 @@ export default function Dashboard() {
                 { icon: '❓', label: 'Aide & Support', action: () => openSupportTab() },
                 { icon: '🪪', label: "Vérification d'identité", action: openVerifyTab, badge: verification.status },
                 { icon: '📄', label: 'Informations légales', action: () => setTab('legal') },
+                { icon: '🗑️', label: 'Supprimer mon compte', action: () => setTab('delete') },
               ].map((item, idx, arr) => (
                 <div key={item.label} onClick={item.action}
                   style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: idx < arr.length - 1 ? '1px solid #F0F0F0' : 'none', cursor: 'pointer' }}>

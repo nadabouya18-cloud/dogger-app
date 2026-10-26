@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
+import DeleteAccountScreen from '../DeleteAccount';
 import { HOME_SERVICE_ENABLED, isScheduledDue } from '../features';
 import VerificationScreen, { fetchMyVerification, VerifBadge, isBlocked } from '../Verification';
 
@@ -1818,6 +1819,7 @@ export default function WalkerHome() {
                { icon: '❓', label: 'Aide & Support', onClick: () => openSupportTab() },
                { icon: '🪪', label: "Vérification d'identité", onClick: openVerifyTab, badge: verification.status },
                { icon: '📄', label: 'Informations légales', onClick: () => setTab('legal') },
+               { icon: '🗑️', label: 'Supprimer mon compte', onClick: () => setTab('delete') },
                { icon: '🚪', label: 'Se déconnecter', color: '#E24B4A', onClick: handleLogout },
              ].map((item, idx, arr) => (
                <div key={item.label} onClick={item.onClick}
@@ -1836,6 +1838,11 @@ export default function WalkerHome() {
        {tab === 'verify' && (
          <VerificationScreen userId={walkerId} verification={verification}
            onChange={setVerification} onBack={() => setTab('profile')} />
+       )}
+
+       {/* SUPPRESSION DU COMPTE */}
+       {tab === 'delete' && (
+         <DeleteAccountScreen userId={walkerId} role="walker" onBack={() => setTab('profile')} />
        )}
 
        {/* INFORMATIONS LÉGALES — textes partagés avec l'espace propriétaire */}

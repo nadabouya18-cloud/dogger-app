@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
+import { HOME_SERVICE_ENABLED } from '../features';
 import VerificationScreen, { fetchMyVerification, VerifBadge, isBlocked } from '../Verification';
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
@@ -2067,10 +2068,10 @@ export default function WalkerHome() {
              ← Retour au profil
            </div>
 
-           <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Déclarez vos disponibilités sur le calendrier — séparément pour la Balade et la Garde à domicile. Touchez un jour pour le déclarer seul, ou utilisez les boutons ci-dessous pour cocher plusieurs jours d'un coup (une période, ou tout le mois).</p>
+           <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Déclarez vos disponibilités sur le calendrier. Touchez un jour pour le déclarer seul, ou utilisez les boutons ci-dessous pour cocher plusieurs jours d'un coup (une période, ou tout le mois).</p>
 
            <div style={{ display: 'flex', background: '#F0F0F0', borderRadius: 14, padding: 4, marginBottom: 16 }}>
-             {[{ id: 'walk', label: '🐕 Balade' }, { id: 'home', label: '🏠 Garde à domicile' }].map(s => (
+             {[{ id: 'walk', label: '🐕 Balade' }, { id: 'home', label: '🏠 Garde à domicile' }].filter(s => s.id !== 'home' || HOME_SERVICE_ENABLED).map(s => (
                <button key={s.id} onClick={() => setAvailService(s.id)} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 11, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: availService === s.id ? '#fff' : 'transparent', color: availService === s.id ? '#1D9E75' : '#888', boxShadow: availService === s.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none', fontFamily: 'inherit' }}>{s.label}</button>
              ))}
            </div>

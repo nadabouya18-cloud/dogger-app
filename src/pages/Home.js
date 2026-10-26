@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { HOME_SERVICE_ENABLED } from '../features';
 
 const COLORS = {
   green: '#1D9E75',
@@ -69,7 +70,7 @@ export default function Home() {
       <div style={{ padding: '32px 20px 0' }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1A1A1A', marginBottom: 16 }}>Choisissez votre formule</h2>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {SERVICES.map(s => (
+          {SERVICES.filter(s => s.id !== 'home' || HOME_SERVICE_ENABLED).map(s => (
             <div key={s.id} onClick={() => setSelected(s.id)}
               style={{ background: selected === s.id ? '#E1F5EE' : '#F8FAF9', borderRadius: 16, padding: '18px 14px', cursor: 'pointer', border: selected === s.id ? '1.5px solid #1D9E75' : '1.5px solid transparent', position: 'relative' }}>
               {s.popular && <span style={{ position: 'absolute', top: 10, right: 10, background: '#1D9E75', color: '#fff', fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10 }}>Populaire</span>}

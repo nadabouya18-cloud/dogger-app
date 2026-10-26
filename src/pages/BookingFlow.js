@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { fetchMyVerification, isBlocked, VerificationBlock } from '../Verification';
+import { HOME_SERVICE_ENABLED } from '../features';
 import useBookingStore from '../store/bookingStore';
 
 const WALK_SERVICES = [
@@ -1066,6 +1067,25 @@ export default function BookingFlow() {
   const inputStyle = { width: '100%', padding: '14px 16px', borderRadius: 12, border: '1.5px solid #E8E8E8', fontSize: 15, fontFamily: 'inherit', outline: 'none', background: '#FAFAFA', color: '#1A1A1A', marginBottom: 12, boxSizing: 'border-box' };
   const labelStyle = { fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 6, display: 'block' };
   const textareaStyle = { ...inputStyle, height: 72, resize: 'none' };
+
+  // ── GARDE À DOMICILE INDISPONIBLE ───────────────────────────────────────────
+  // L'URL /book/home reste atteignable à la main : on l'arrête ici plutôt que
+  // d'ouvrir un parcours qui ne débouche sur personne.
+  if (flowType === 'home' && !HOME_SERVICE_ENABLED) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#fff', fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🏠</div>
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>La garde à domicile n'est pas encore ouverte</h3>
+        <p style={{ fontSize: 14, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>
+          Nous préférons ne pas la proposer tant qu'elle ne fonctionne pas vraiment. La balade, elle, est pleinement disponible.
+        </p>
+        <button onClick={goToDashboard}
+          style={{ width: '100%', padding: 16, background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+          Retour à l'accueil
+        </button>
+      </div>
+    );
+  }
 
   // ── VÉRIFICATION D'IDENTITÉ REQUISE ─────────────────────────────────────────
   // Placé avant tous les autres écrans : tant que le compte n'est pas vérifié,

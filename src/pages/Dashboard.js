@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
+import { HOME_SERVICE_ENABLED } from '../features';
 import VerificationScreen, { fetchMyVerification, VerifBadge } from '../Verification';
 
 const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
@@ -1014,7 +1015,7 @@ export default function Dashboard() {
             ) : (
               <div style={{ marginBottom: 20 }}>
                 <p style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>Que voulez-vous commander ?</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: HOME_SERVICE_ENABLED ? '1fr 1fr' : '1fr', gap: 12 }}>
                   {/* Balade */}
                   <div onClick={() => startBooking('walk')}
                     style={{ background: 'linear-gradient(135deg, #1D9E75, #0F6E56)', borderRadius: 18, padding: '18px 14px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
@@ -1026,7 +1027,8 @@ export default function Dashboard() {
                     </div>
                     <div style={{ position: 'absolute', bottom: -10, right: -10, fontSize: 48, opacity: 0.15 }}>🐕</div>
                   </div>
-                  {/* Dogger Home */}
+                  {/* Dogger Home — masqué tant que la formule n'est pas réelle */}
+                  {HOME_SERVICE_ENABLED && (
                   <div onClick={() => startBooking('home')}
                     style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)', borderRadius: 18, padding: '18px 14px', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(255,255,255,0.25)', borderRadius: 8, padding: '2px 7px', fontSize: 9, fontWeight: 700, color: '#fff' }}>Nouveau</div>
@@ -1038,6 +1040,7 @@ export default function Dashboard() {
                     </div>
                     <div style={{ position: 'absolute', bottom: -10, right: -10, fontSize: 48, opacity: 0.15 }}>🏠</div>
                   </div>
+                  )}
                 </div>
               </div>
             )}

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { fetchMyVerification, isBlocked, VerificationBlock } from '../Verification';
-import { HOME_SERVICE_ENABLED } from '../features';
+import { HOME_SERVICE_ENABLED, localDateStr } from '../features';
 import useBookingStore from '../store/bookingStore';
 
 const WALK_SERVICES = [
@@ -1628,7 +1628,7 @@ export default function BookingFlow() {
               {walkMode === 'later' && (
                 <>
                   <label style={labelStyle}>Date</label>
-                  <input style={inputStyle} type="date" value={walkDate} min={new Date().toISOString().split('T')[0]} onChange={e => setWalkDate(e.target.value)} />
+                  <input style={inputStyle} type="date" value={walkDate} min={localDateStr()} onChange={e => setWalkDate(e.target.value)} />
                   <label style={labelStyle}>Heure</label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
                     {TIMES.map(t => (
@@ -1814,11 +1814,11 @@ export default function BookingFlow() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
                     <div>
                       <label style={{ ...labelStyle, color: '#D97706' }}>📅 Date de début</label>
-                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date" value={homeStartDate} min={new Date().toISOString().split('T')[0]} onChange={e => { setHomeStartDate(e.target.value); calcHomeDuration(e.target.value, homeEndDate, homeDepositTime, homePickupTime); }} />
+                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date" value={homeStartDate} min={localDateStr()} onChange={e => { setHomeStartDate(e.target.value); calcHomeDuration(e.target.value, homeEndDate, homeDepositTime, homePickupTime); }} />
                     </div>
                     <div>
                       <label style={{ ...labelStyle, color: '#D97706' }}>📅 Date de fin</label>
-                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date" value={homeEndDate} min={homeStartDate || new Date().toISOString().split('T')[0]} onChange={e => { setHomeEndDate(e.target.value); calcHomeDuration(homeStartDate, e.target.value, homeDepositTime, homePickupTime); }} />
+                      <input style={{ ...inputStyle, marginBottom: 0, border: '1.5px solid #F59E0B' }} type="date" value={homeEndDate} min={homeStartDate || localDateStr()} onChange={e => { setHomeEndDate(e.target.value); calcHomeDuration(homeStartDate, e.target.value, homeDepositTime, homePickupTime); }} />
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>

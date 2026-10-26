@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
-import { HOME_SERVICE_ENABLED } from '../features';
+import { HOME_SERVICE_ENABLED, isScheduledDue } from '../features';
 import VerificationScreen, { fetchMyVerification, VerifBadge, isBlocked } from '../Verification';
 
 const SIZE_ICONS = { xs: '🐩', s: '🐕', m: '🦮', l: '🐕‍🦺' };
@@ -2228,15 +2228,14 @@ export default function WalkerHome() {
                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                  {confirmedScheduled.map(b => {
                    const dateLabel = b.scheduled_date ? new Date(`${b.scheduled_date}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
-                   const todayStr = new Date().toISOString().split('T')[0];
-                   const isDue = b.scheduled_date && b.scheduled_date <= todayStr;
+                   const isDue = isScheduledDue(b);
                    return (
                      <div key={b.id} style={{ background: '#fff', borderRadius: 16, padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>✅ {dateLabel} à {b.scheduled_time}</div>
                        <div style={{ fontSize: 13, color: '#888', marginBottom: 10 }}>{b.service} · {b.duration} min · {b.dog_name || 'Chien'} · {b.owner_name || 'Propriétaire'}</div>
                        <div style={{ display: 'flex', gap: 8 }}>
                          <button onClick={() => setReqChatBooking({ id: b.id, owner: b.owner_name })} style={{ flex: 1, padding: '10px', background: '#F0F9F5', color: '#1D9E75', border: '1.5px solid #1D9E75', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>💬 Discuter</button>
-                         <button onClick={() => isDue && startScheduledMission(b)} disabled={!isDue} style={{ flex: 1, padding: '10px', background: isDue ? 'linear-gradient(135deg, #1D9E75, #0F6E56)' : '#F0F0F0', color: isDue ? '#fff' : '#AAA', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: isDue ? 'pointer' : 'default' }}>{isDue ? '▶️ Démarrer' : 'Le jour J'}</button>
+                         <button onClick={() => isDue && startScheduledMission(b)} disabled={!isDue} style={{ flex: 1, padding: '10px', background: isDue ? 'linear-gradient(135deg, #1D9E75, #0F6E56)' : '#F0F0F0', color: isDue ? '#fff' : '#AAA', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: isDue ? 'pointer' : 'default' }}>{isDue ? '▶️ Démarrer' : "À l'heure prévue"}</button>
                        </div>
                      </div>
                    );

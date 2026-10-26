@@ -84,6 +84,8 @@ export default function Register() {
   const [idCardValid, setIdCardValid] = useState(false);
   const [idCardError, setIdCardError] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
+  // false = l'analyse automatique n'a pas pu se prononcer → relecture humaine
+  const [idCheckAutomatic, setIdCheckAutomatic] = useState(true);
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -157,6 +159,7 @@ export default function Register() {
             dog_notes: form.dogNotes,
             terms_version: LEGAL_VERSION,
             terms_accepted_at: new Date().toISOString(),
+            id_check: idCheckAutomatic ? 'auto_ok' : 'manual_review',
           }
         }
       });
@@ -218,7 +221,9 @@ export default function Register() {
         // serveur (api/verify-id.js) : la clé Anthropic n'est plus dans le navigateur.
         // Les PDF ne peuvent pas être analysés ici (l'IA lit des images) : on les accepte comme avant.
         if (!file.type.startsWith('image/')) {
+          // Les PDF ne sont pas analysables ici : relecture humaine.
           setIdCardValid(true);
+          setIdCheckAutomatic(false);
           return;
         }
         const small = await shrinkImage(base64);
@@ -238,8 +243,13 @@ export default function Register() {
           setIdCardError('');
         }
       } catch (err) {
-        // Si l'IA échoue, on accepte quand même
+        // L'analyse n'a pas pu aboutir (service indisponible, format
+        // inattendu…). On laisse l'inscription se poursuivre — bloquer
+        // quelqu'un parce que notre service est en panne serait pire — mais
+        // on ne fait pas passer ça pour un contrôle réussi : le compte est
+        // marqué pour une vérification manuelle.
         setIdCardValid(true);
+        setIdCheckAutomatic(false);
         setIdCardError('');
       } finally {
         setIdCardLoading(false);
@@ -394,6 +404,11 @@ export default function Register() {
               )}
             </div>
             <input id="idCard" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleIdCard} />
+            {idCardValid && !idCheckAutomatic && (
+              <div style={{ background: '#FFF8E1', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#8A6D1F', lineHeight: 1.5, marginBottom: 8 }}>
+                Nous n'avons pas pu vérifier ce document automatiquement. Votre inscription continue, et il sera relu manuellement.
+              </div>
+            )}
             {idCardError && (
               <div style={{ fontSize: 12, color: '#E24B4A', fontWeight: 600, marginBottom: 12 }}>
                 ⚠️ {idCardError}

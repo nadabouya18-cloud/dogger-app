@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
-import { HOME_SERVICE_ENABLED } from '../features';
+import { HOME_SERVICE_ENABLED, localDateStr } from '../features';
 import VerificationScreen, { fetchMyVerification, VerifBadge } from '../Verification';
 
 const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY;
@@ -240,7 +240,7 @@ export default function Dashboard() {
       // jusqu'au jour J — on ne la traite comme "en cours maintenant" qu'à
       // partir de ce jour-là, sinon elle prendrait toute la place ici dès
       // sa confirmation, parfois des jours avant la balade elle-même.
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = localDateStr();
       const { data } = await supabase
         .from('bookings')
         .select('*')

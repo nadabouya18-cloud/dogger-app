@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
 import DeleteAccountScreen from '../DeleteAccount';
+import NotificationsScreen from '../Notifications';
 import { HOME_SERVICE_ENABLED, localDateStr } from '../features';
 import { notifyGeneric, useScreenWakeLock } from '../alerts';
 import VerificationScreen, { fetchMyVerification, VerifBadge } from '../Verification';
@@ -1469,6 +1470,9 @@ export default function Dashboard() {
             onChange={setVerification} onBack={() => setTab('profile')} />
         )}
 
+        {/* NOTIFICATIONS */}
+        {tab === 'notifs' && <NotificationsScreen role="owner" onBack={() => setTab('profile')} />}
+
         {/* SUPPRESSION DU COMPTE */}
         {tab === 'delete' && (
           <DeleteAccountScreen userId={ownerIdRef.current} role="owner" onBack={() => setTab('profile')} />
@@ -1744,7 +1748,7 @@ export default function Dashboard() {
                 { icon: '🐾', label: 'Mes chiens', action: () => setTab('dogs') },
                 { icon: '📋', label: 'Historique des balades', action: openHistoryTab },
                 { icon: '⭐', label: 'Mes promeneurs favoris', action: openFavoritesTab },
-                { icon: '🔔', label: 'Notifications', action: () => {} },
+                { icon: '🔔', label: 'Notifications', action: () => setTab('notifs') },
                 { icon: '🔒', label: 'Sécurité & mot de passe', action: () => setTab('security') },
                 { icon: '❓', label: 'Aide & Support', action: () => openSupportTab() },
                 { icon: '🪪', label: "Vérification d'identité", action: openVerifyTab, badge: verification.status },

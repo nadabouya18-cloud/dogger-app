@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import LegalScreen from '../Legal';
 import DeleteAccountScreen from '../DeleteAccount';
+import NotificationsScreen from '../Notifications';
 import { HOME_SERVICE_ENABLED, isScheduledDue } from '../features';
 import { primeAlerts, alertsReady, notifyNewMission, notifyGeneric, useScreenWakeLock } from '../alerts';
 import VerificationScreen, { fetchMyVerification, VerifBadge, isBlocked } from '../Verification';
@@ -1838,7 +1839,7 @@ export default function WalkerHome() {
              {[
                { icon: '📋', label: 'Mes disponibilités', onClick: () => setTab('availability') },
                { icon: '🏦', label: 'Informations bancaires', onClick: () => setTab('payouts') },
-               { icon: '📱', label: 'Notifications' },
+               { icon: '🔔', label: 'Notifications', onClick: () => setTab('notifs') },
                { icon: '🔒', label: 'Sécurité & mot de passe', onClick: () => setTab('security') },
                { icon: '❓', label: 'Aide & Support', onClick: () => openSupportTab() },
                { icon: '🪪', label: "Vérification d'identité", onClick: openVerifyTab, badge: verification.status },
@@ -1863,6 +1864,9 @@ export default function WalkerHome() {
          <VerificationScreen userId={walkerId} verification={verification}
            onChange={setVerification} onBack={() => setTab('profile')} />
        )}
+
+       {/* NOTIFICATIONS */}
+       {tab === 'notifs' && <NotificationsScreen role="walker" onBack={() => setTab('profile')} />}
 
        {/* SUPPRESSION DU COMPTE */}
        {tab === 'delete' && (
